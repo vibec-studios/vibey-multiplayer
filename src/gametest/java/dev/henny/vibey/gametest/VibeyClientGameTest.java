@@ -1,6 +1,8 @@
 package dev.henny.vibey.gametest;
 
+import dev.henny.vibey.client.AdminScreen;
 import dev.henny.vibey.client.HostScreen;
+import dev.henny.vibey.host.Access;
 import dev.henny.vibey.host.HostConfig;
 import dev.henny.vibey.host.HostSession;
 import net.fabricmc.fabric.api.client.gametest.v1.FabricClientGameTest;
@@ -31,6 +33,10 @@ public final class VibeyClientGameTest implements FabricClientGameTest {
                 HostConfig.get().relay = relay;
                 HostConfig.get().advancedOpen = false;
                 HostConfig.get().lastAddress = "";
+                HostConfig.get().whitelistEnabled = false;
+                HostConfig.get().whitelist = new java.util.ArrayList<>();
+                HostConfig.get().bannedNames = new java.util.ArrayList<>();
+                HostConfig.get().bannedIps = new java.util.LinkedHashMap<>();
             });
 
             context.setScreen(() -> new PauseScreen(true));
@@ -51,22 +57,90 @@ public final class VibeyClientGameTest implements FabricClientGameTest {
             if (!status.contains("\"version\"")) throw new AssertionError("No status through the tunnel: " + status);
             System.out.println("[vibey-test] status via " + address + ": " + status);
 
-            context.runOnClient(mc -> HostConfig.get().advancedOpen = true);
-            context.waitTicks(5);
-            context.getInput().moveCursor(640, 400);
-            context.getInput().scroll(-20);
+            // Whitelist on network level: someone who is not on it never reaches the world.
+            context.runOnClient(mc -> {
+                Access.whitelistAdd("Alex");
+                Access.setWhitelistEnabled(true);
+                Access.ban("Griefer");
+                Access.ban("203.0.113.7");
+            });
             context.waitTicks(10);
-            context.takeScreenshot("4_host_advanced");
-            context.getInput().scroll(20);
+            String denied = join(relay, address, "Steve");
+            if (!denied.contains("whitelist")) throw new AssertionError("Relay let a non-whitelisted player through: " + denied);
+            System.out.println("[vibey-test] whitelist on relay: " + denied);
+            context.waitTicks(5);
+
+            context.setScreen(() -> new AdminScreen(new HostScreen(null)));
+            context.waitTicks(10);
+            context.takeScreenshot("4_admin_players");
+            clickTab(context, "access");
+            context.takeScreenshot("5_admin_access");
+            clickTab(context, "world");
+            context.takeScreenshot("6_admin_world");
+            clickTab(context, "advanced");
+            context.takeScreenshot("7_admin_advanced");
+            clickTab(context, "players");
 
             context.runOnClient(mc -> HostSession.stop());
             context.waitTicks(10);
-            context.takeScreenshot("5_host_stopped");
+            context.setScreen(() -> new HostScreen(null));
+            context.waitTicks(10);
+            context.takeScreenshot("8_host_stopped");
 
             context.setScreen(() -> new PauseScreen(true));
             context.waitTicks(5);
-            context.takeScreenshot("6_pause_after");
+            context.takeScreenshot("9_pause_after");
             context.setScreen(() -> null);
+        }
+    }
+
+    /** Switches the admin tab by simulating what a click would do (the tab is remembered across screens). */
+    private static void clickTab(ClientGameTestContext context, String tab) {
+        context.runOnClient(mc -> {
+            try {
+                Class<?> tabs = Class.forName("dev.henny.vibey.client.AdminScreen$Tab");
+                Object value = Enum.valueOf((Class) tabs, tab.toUpperCase(java.util.Locale.ROOT));
+                var f = AdminScreen.class.getDeclaredField("tab");
+                f.setAccessible(true);
+                f.set(mc.screen, value);
+            } catch (ReflectiveOperationException e) {
+                throw new RuntimeException(e);
+            }
+        });
+        context.waitTicks(8);
+    }
+
+    /** A join attempt through the relay as a vanilla client would start it; returns the kick text. */
+    private static String join(String relay, String address, String name) {
+        String[] r = relay.split(":");
+        String host = address.split(":")[0];
+        try (Socket s = new Socket(r[0], Integer.parseInt(r[1]))) {
+            s.setSoTimeout(10_000);
+            ByteArrayOutputStream hs = new ByteArrayOutputStream();
+            hs.write(0);
+            varint(hs, 774);
+            byte[] h = host.getBytes(StandardCharsets.UTF_8);
+            varint(hs, h.length);
+            hs.write(h);
+            hs.write(0x63);
+            hs.write(0xDD);
+            varint(hs, 2);
+            ByteArrayOutputStream login = new ByteArrayOutputStream();
+            login.write(0);
+            byte[] n = name.getBytes(StandardCharsets.UTF_8);
+            varint(login, n.length);
+            login.write(n);
+            login.write(new byte[16]);
+            ByteArrayOutputStream pkt = new ByteArrayOutputStream();
+            varint(pkt, hs.size());
+            pkt.write(hs.toByteArray());
+            varint(pkt, login.size());
+            pkt.write(login.toByteArray());
+            s.getOutputStream().write(pkt.toByteArray());
+            s.getOutputStream().flush();
+            return new String(s.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            throw new AssertionError("Join attempt failed: " + e, e);
         }
     }
 

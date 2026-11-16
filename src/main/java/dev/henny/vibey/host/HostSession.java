@@ -102,7 +102,22 @@ public final class HostSession {
                 .map(Platform.ModInfo::version).findFirst().orElse("");
         status = Status.CONNECTING;
         Tunnel t = new Tunnel(cfg.relay, lanPort, user.getName(), user.getProfileId(), mcVersion,
-                Compat::joinServer, HostSession::onTunnel);
+                Compat::joinServer, Access::relayMessage, new Tunnel.Listener() {
+                    @Override
+                    public void onState(Tunnel.State state, String address, String error) {
+                        onTunnel(state, address, error);
+                    }
+
+                    @Override
+                    public void onPlayer(String name, String ip) {
+                        Access.onRelayJoin(name, ip);
+                    }
+
+                    @Override
+                    public void onBlocked(String name, String ip, String reason) {
+                        Access.onRelayBlocked(name, ip, reason);
+                    }
+                });
         tunnel = t;
         t.start();
         Vibey.LOG.info("Hosting world on LAN port {} through {}", lanPort, cfg.relay);
@@ -124,6 +139,12 @@ public final class HostSession {
                 if (Compat.unpublish(server)) openedFor = null;
             });
         }
+    }
+
+    /** Tells the relay about a changed whitelist / ban list right away. */
+    static void pushAccess() {
+        Tunnel t = tunnel;
+        if (t != null) t.pushAccess();
     }
 
     public static void rotate() {

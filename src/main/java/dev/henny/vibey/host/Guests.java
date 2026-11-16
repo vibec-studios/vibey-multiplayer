@@ -70,6 +70,12 @@ public final class Guests {
             return;
         }
         HostConfig cfg = HostConfig.get();
+        // The relay already blocks these; this catches joins over the LAN.
+        String deny = Access.denyReason(player.getName().getString());
+        if (deny != null) {
+            player.connection.disconnect(Component.literal(tr(deny)));
+            return;
+        }
         if (server.getPlayerList().getPlayers().size() > cfg.maxPlayers) {
             player.connection.disconnect(Component.literal(tr("vibey.kick.full")));
             return;
@@ -145,6 +151,15 @@ public final class Guests {
             ServerPlayer p = server.getPlayerList().getPlayer(id);
             if (p == null || isHost(p)) return;
             p.connection.disconnect(Component.literal(tr("vibey.kick.kicked")));
+        });
+    }
+
+    /** Bans the player (name and last known IP) and removes them right away. */
+    public static void ban(UUID id, String name) {
+        Access.ban(name);
+        run(server -> {
+            ServerPlayer p = server.getPlayerList().getPlayer(id);
+            if (p != null && !isHost(p)) p.connection.disconnect(Component.literal(tr("vibey.kick.banned")));
         });
     }
 

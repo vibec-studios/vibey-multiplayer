@@ -1,7 +1,7 @@
 modLoader = "javafml"
 loaderVersion = "[1,)"
 license = "MIT"
-issueTrackerURL = "https://github.com/Henny263462/vibey-multiplayer/issues"
+issueTrackerURL = "https://github.com/vibec-studios/vibey-multiplayer/issues"
 
 [[mods]]
 modId = "${mod_id}"

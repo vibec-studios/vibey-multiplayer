@@ -18,6 +18,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
+import java.util.function.Supplier;
 
 /**
  * Connection to the relay (see relay/server.ts for the protocol).
@@ -31,6 +32,12 @@ public final class Tunnel {
 
     public interface Listener {
         void onState(State state, String address, String error);
+
+        /** A player joins through the relay (name as sent by the client, IP as seen by the relay). */
+        default void onPlayer(String name, String ip) {}
+
+        /** The relay turned someone away because of the whitelist or the ban list. */
+        default void onBlocked(String name, String ip, String reason) {}
     }
 
     private static final byte[] MAGIC = {0x00, 'V', 'B', 'Y'};
@@ -43,6 +50,7 @@ public final class Tunnel {
     private final UUID uuid;
     private final String mcVersion;
     private final Function<String, String> joinServer;
+    private final Supplier<String> access;
     private final Listener listener;
 
     private volatile boolean closed;
@@ -57,7 +65,7 @@ public final class Tunnel {
      *                   success or an error text.
      */
     public Tunnel(String relay, int lanPort, String name, UUID uuid, String mcVersion,
-                  Function<String, String> joinServer, Listener listener) {
+                  Function<String, String> joinServer, Supplier<String> access, Listener listener) {
         String host = relay;
         int port = 25565;
         int colon = relay.lastIndexOf(':');
@@ -75,6 +83,7 @@ public final class Tunnel {
         this.uuid = uuid;
         this.mcVersion = mcVersion;
         this.joinServer = joinServer;
+        this.access = access;
         this.listener = listener;
     }
 
@@ -98,6 +107,11 @@ public final class Tunnel {
 
     public void rotate() {
         send("{\"t\":\"rotate\"}");
+    }
+
+    /** Sends the current whitelist / ban list to the relay. */
+    public void pushAccess() {
+        send(access.get());
     }
 
     // -------------------------------------------------------------------------------------------- control loop
@@ -152,6 +166,7 @@ public final class Tunnel {
                 controlOut.write(MAGIC);
             }
             send(hello.toString());
+            send(access.get());
 
             Thread pinger = new Thread(() -> {
                 while (!closed && control == s && !s.isClosed()) {
@@ -182,7 +197,13 @@ public final class Tunnel {
                         wasOnline = true;
                         listener.onState(State.ONLINE, msg.get("address").getAsString(), null);
                     }
-                    case "open" -> openStream(msg.get("sid").getAsInt(), msg.get("key").getAsString());
+                    case "open" -> {
+                        if (msg.has("name") && msg.has("ip")) {
+                            listener.onPlayer(msg.get("name").getAsString(), msg.get("ip").getAsString());
+                        }
+                        openStream(msg.get("sid").getAsInt(), msg.get("key").getAsString());
+                    }
+                    case "blocked" -> listener.onBlocked(str(msg, "name"), str(msg, "ip"), str(msg, "reason"));
                     case "replaced" -> {
                         return "replaced";
                     }
@@ -204,6 +225,10 @@ public final class Tunnel {
             quietClose(s);
             if (control == s) control = null;
         }
+    }
+
+    private static String str(JsonObject o, String key) {
+        return o.has(key) && !o.get(key).isJsonNull() ? o.get(key).getAsString() : "";
     }
 
     private void send(String json) {

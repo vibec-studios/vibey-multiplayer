@@ -15,18 +15,25 @@ send it to your friends. They join with a normal, unmodded Minecraft through *Mu
 
 - **Your own address.** Every player gets one address like `mossy-otter-27.vibey.henny.dev`. It stays the same
   every time you host, in every world, until you decide to **renew** it (the old one stops working right away).
-- **Host World** button in the pause menu, in place of *Open to LAN*.
-- **Simple by default:** game mode for guests, cheats, force mods. That's it.
-- **Players:** see who is online, give or take **OP** with one click, kick.
-- **Advanced** (folded away): PvP, max players, exact mod versions, new address, own relay server.
+- **Host World** button in the pause menu, in place of *Open to LAN*. The window shows only your address, whether you
+  are online and one button to start or stop.
+- **Manage** opens the admin menu with four tabs:
+  - **Players:** who is online, **OP** with one click, kick, ban; plus who was recently turned away (one click lets
+    them in).
+  - **Access:** a **whitelist** and a **ban list** (names and IPs). Both are enforced by the relay on **network level**:
+    a blocked player never reaches your computer.
+  - **World:** game mode for guests, cheats, PvP, max players, force mods.
+  - **Advanced:** exact mod versions, new address, own relay server.
 - **Force mods:** guests need Vibey and the same mods as you. Anyone who is missing something gets a clear list
   of what to install instead of a cryptic registry error.
 - **Friends don't need the mod** (unless you turn on *Force mods*).
 - End-to-end encrypted in online mode: the relay forwards bytes, it never sees inside the Minecraft connection.
 
-| Hosting | Advanced |
+| Hosting | Manage → Access |
 |---|---|
-| ![Host screen while online](docs/screenshots/host-online.png) | ![Advanced options](docs/screenshots/host-advanced.png) |
+| ![Host screen while online](docs/screenshots/host-online.png) | ![Whitelist and ban list](docs/screenshots/admin-access.png) |
+| **Manage → Players** | **Manage → World** |
+| ![Players and recently turned away](docs/screenshots/admin-players.png) | ![World settings](docs/screenshots/admin-world.png) |
 
 *Screenshots from the automated client test (Fabric 1.21.11, local test relay).*
 
@@ -63,6 +70,9 @@ Fabric needs [Fabric API](https://modrinth.com/mod/fabric-api). The mod only run
 - The relay proves who you are with the same Mojang session check servers use, so nobody can take your address.
 - Addresses come from wildcard DNS (`*.vibey.henny.dev`) pointing at the relay, so friends never type a port.
 - When you are offline, your address still answers in the server list: *"This world is offline"*.
+- Whitelist and ban list travel to the relay. It reads the player name from the Minecraft *Login Start* packet and
+  turns blocked players away with your message before opening a connection to you. Names cannot be faked: in online
+  mode a player can only log in with an account they own. Bans by IP use the address the relay sees.
 
 ## Running the relay
 
@@ -85,11 +95,20 @@ The relay is one file without dependencies: [`relay/server.ts`](relay/server.ts)
 | `DOMAIN` | `vibey.henny.dev` | Wildcard domain of the addresses |
 | `PUBLIC_PORT` | `PORT` | Port shown in addresses (if not 25565) |
 | `DATA_DIR` | `./data` | Where address ownership is stored (`addresses.json`) |
-| `HTTP_PORT` | off | `/health` and `/stats` |
+| `HTTP_PORT` | off | `/health` and `/status` (public numbers, no names or addresses) |
 | `MAX_STREAMS` | `64` | Connections per host |
 | `ALLOW_OFFLINE` | off | `1` skips the Mojang check (local testing only!) |
 
 `node relay/selftest.ts` runs an end-to-end test with a fake host and fake players.
+
+### Live setup (Vibe Craft Studios)
+
+- **Relay:** Dokploy project *Vibey Multiplayer*, compose *Relay* on the Hetzner server (public IP, TCP 25565, status
+  on 8765), built from `relay/docker-compose.yml` of this repo.
+- **Status API:** app *Status* on the home server behind Traefik + Cloudflare:
+  `https://vibey-status.henny.dev/status` ([`relay/status-proxy.ts`](relay/status-proxy.ts)). It exists because the
+  relay itself cannot sit behind Cloudflare (raw TCP).
+- **DNS:** `*.vibey.henny.dev` must be a **DNS-only** record (no Cloudflare proxy) pointing at the relay server.
 
 ## Building
 
@@ -101,11 +120,14 @@ The relay is one file without dependencies: [`relay/server.ts`](relay/server.ts)
 Requires JDK 21 and JDK 25 (Minecraft 26.x). Multi-version builds use
 [Stonecutter](https://stonecutter.kikugie.dev/): one source tree, version-specific lines are marked with
 `//? if >=1.21.9` comments. Everything that differs between versions sits in `Compat.java`, `client/ui/Gfx.java`,
-`client/ui/BaseScreen.java` and the two loader entry points.
+`client/ui/BaseScreen.java` and the two loader entry points. `./gradlew :fabric-1.21.11:runClientGameTest` starts the
+real game, hosts a world through a local relay (`ALLOW_OFFLINE=1 HTTP_PORT=26401 PORT=26400 node relay/server.ts`)
+and takes the screenshots above.
 
 ## Settings file
 
-`config/vibey.json` holds the host settings (game mode, cheats, force mods, PvP, max players, relay, last address).
+`config/vibey.json` holds the host settings (game mode, cheats, force mods, PvP, max players, whitelist, ban list,
+relay, last address).
 
 ## License
 

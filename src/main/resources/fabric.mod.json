@@ -7,8 +7,8 @@
   "authors": ["Vibe Craft Studios"],
   "contact": {
     "homepage": "https://vibec-studios.github.io/mods/vibey-multiplayer/",
-    "sources": "https://github.com/Henny263462/vibey-multiplayer",
-    "issues": "https://github.com/Henny263462/vibey-multiplayer/issues"
+    "sources": "https://github.com/vibec-studios/vibey-multiplayer",
+    "issues": "https://github.com/vibec-studios/vibey-multiplayer/issues"
   },
   "license": "MIT",
   "icon": "assets/vibey/icon.png",

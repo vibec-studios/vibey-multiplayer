@@ -6,8 +6,10 @@ import net.minecraft.network.chat.Component;
 /*import net.minecraft.client.gui.GuiGraphicsExtractor;
 *///?} else
 import net.minecraft.client.gui.GuiGraphics;
-//? if >=1.21.9
+//? if >=1.21.9 {
+import net.minecraft.client.input.KeyEvent;
 import net.minecraft.client.input.MouseButtonEvent;
+//?}
 
 /**
  * Version glue for screens: subclasses implement {@link #draw}, {@link #click} and {@link #scroll} and never touch the
@@ -24,6 +26,11 @@ public abstract class BaseScreen extends Screen {
     protected abstract boolean click(double x, double y, int button);
 
     protected abstract boolean scroll(double x, double y, double amount);
+
+    /** @return true if the key was used (called before the focused text field sees it) */
+    protected boolean key(int keyCode) {
+        return false;
+    }
 
     //? if >=26.1 {
     /*@Override
@@ -56,6 +63,20 @@ public abstract class BaseScreen extends Screen {
     public boolean mouseClicked(double x, double y, int button) {
         if (click(x, y, button)) return true;
         return super.mouseClicked(x, y, button);
+    }
+    *///?}
+
+    //? if >=1.21.9 {
+    @Override
+    public boolean keyPressed(KeyEvent event) {
+        if (key(event.key())) return true;
+        return super.keyPressed(event);
+    }
+    //?} else {
+    /*@Override
+    public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+        if (key(keyCode)) return true;
+        return super.keyPressed(keyCode, scanCode, modifiers);
     }
     *///?}
 

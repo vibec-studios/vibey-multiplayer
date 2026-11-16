@@ -8,6 +8,10 @@ import dev.henny.vibey.Vibey;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 
 /** Settings of the host, saved in config/vibey.json. Fields are public on purpose: Gson writes them 1:1. */
 public final class HostConfig {
@@ -18,6 +22,13 @@ public final class HostConfig {
     public String gameMode = "survival";
     public boolean cheats = false;
     public boolean forceMods = false;
+
+    // Access (enforced by the relay before anyone reaches the world, and again on join)
+    public boolean whitelistEnabled = false;
+    public List<String> whitelist = new ArrayList<>();
+    public List<String> bannedNames = new ArrayList<>();
+    /** Banned IP -> name of the player it belonged to (only for display). */
+    public Map<String, String> bannedIps = new LinkedHashMap<>();
 
     // Advanced
     public boolean pvp = true;
@@ -70,5 +81,8 @@ public final class HostConfig {
         if (lanPort < 0 || lanPort > 65535) lanPort = 0;
         if (gameMode == null) gameMode = "survival";
         if (lastAddress == null) lastAddress = "";
+        if (whitelist == null) whitelist = new ArrayList<>();
+        if (bannedNames == null) bannedNames = new ArrayList<>();
+        if (bannedIps == null) bannedIps = new LinkedHashMap<>();
     }
 }
