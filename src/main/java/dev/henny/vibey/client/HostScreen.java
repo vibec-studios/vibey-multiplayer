@@ -22,7 +22,7 @@ import java.util.Map;
 import java.util.UUID;
 
 /**
- * The host screen: one card, three simple switches, the player list and a folded "Advanced" part. Drawn by hand
+ * The host screen, square like the studio website: one card, three simple switches, the player list and a folded "Advanced" part. Drawn by hand
  * (immediate mode): every frame lays everything out again and records the clickable areas for the next click.
  */
 public final class HostScreen extends BaseScreen {
@@ -116,9 +116,9 @@ public final class HostScreen extends BaseScreen {
         int y = (height - h) / 2 + Math.round((1f - open) * 8);
 
         // Card with a soft shadow
-        g.round(x - 2, y + 1, w + 4, h + 4, 8, 0x40000000);
-        g.round(x, y, w, h, 7, CARD);
-        g.roundOutline(x, y, w, h, 7, CARD_LINE);
+        g.rect(x + 3, y + 3, w, h, 0x50000000);
+        g.rect(x, y, w, h, CARD);
+        g.outline(x, y, w, h, CARD_LINE);
 
         drawHeader(g, x, y, w);
 
@@ -152,7 +152,7 @@ public final class HostScreen extends BaseScreen {
             int track = bottom - top - 8;
             int thumb = Math.max(16, track * (bottom - top) / Math.max(1, contentHeight));
             int ty = top + 4 + (int) ((track - thumb) * (scroll / maxScroll));
-            g.round(x + w - 5, ty, 2, thumb, 1, 0x50FFFFFF);
+            g.rect(x + w - 5, ty, 2, thumb, 0x50FFFFFF);
         }
 
         drawFooter(g, x, bottom, w);
@@ -166,7 +166,7 @@ public final class HostScreen extends BaseScreen {
         int cx = x + w - PAD - 9;
         int cyy = y + 11;
         boolean hov = hover(cx - 3, cyy - 3, 15, 15);
-        if (hov) g.round(cx - 3, cyy - 3, 15, 15, 4, SURFACE_HOVER);
+        if (hov) g.rect(cx - 3, cyy - 3, 15, 15, SURFACE_HOVER);
         cross(g, cx, cyy, 9, hov ? TEXT : MUTED);
         hit(cx - 3, cyy - 3, 15, 15, this::onClose);
 
@@ -199,14 +199,15 @@ public final class HostScreen extends BaseScreen {
         int pw = g.width(label) + 20;
         int px = cx - 8 - pw;
         int py = y + 10;
-        g.round(px, py, pw, 14, 7, SURFACE);
+        g.rect(px, py, pw, 14, SURFACE);
         float pulse = st == HostSession.Status.CONNECTING || st == HostSession.Status.RECONNECTING
                 ? 0.55f + 0.45f * (float) Math.sin(System.currentTimeMillis() / 180.0) : 1f;
         if (st == HostSession.Status.ONLINE) {
             float ring = (System.currentTimeMillis() % 1600) / 1600f;
-            g.circle(px + 8, py + 7, 2 + Math.round(ring * 3), alpha(color, (1f - ring) * 0.35f));
+            int r = 2 + Math.round(ring * 3);
+            g.outline(px + 8 - r, py + 7 - r, r * 2, r * 2, alpha(color, (1f - ring) * 0.5f));
         }
-        g.circle(px + 8, py + 7, 2, alpha(color, pulse));
+        g.rect(px + 6, py + 5, 4, 4, alpha(color, pulse));
         g.text(label, px + 14, py + 3, st == HostSession.Status.OFF ? MUTED : TEXT);
     }
 
@@ -215,8 +216,8 @@ public final class HostScreen extends BaseScreen {
         if (st == HostSession.Status.ERROR) {
             List<String> lines = wrap(g, HostSession.error(), w - 20);
             int h = 22 + lines.size() * 10 + 12;
-            g.round(x, y, w, h, 5, 0xFF2A1416);
-            g.roundOutline(x, y, w, h, 5, 0xFF4A2024);
+            g.rect(x, y, w, h, 0xFF2A1416);
+            g.outline(x, y, w, h, 0xFF4A2024);
             g.text(I18n.get("vibey.status.error"), x + 10, y + 8, RED);
             int ly = y + 21;
             for (String l : lines) {
@@ -228,7 +229,7 @@ public final class HostScreen extends BaseScreen {
         }
 
         int h = 44;
-        g.round(x, y, w, h, 5, SURFACE);
+        g.rect(x, y, w, h, SURFACE);
         g.text(I18n.get("vibey.address"), x + 10, y + 8, MUTED);
 
         String address = HostSession.address();
@@ -244,7 +245,7 @@ public final class HostScreen extends BaseScreen {
             int by = y + 13;
             boolean hov = hover(bx, by, btnW, 18);
             int bg = copied ? 0xFF1F3A28 : (hov ? ACCENT_HOVER : ACCENT);
-            g.round(bx, by, btnW, 18, 4, bg);
+            g.rect(bx, by, btnW, 18, bg);
             g.textCenter(bl, bx + btnW / 2, by + 5, copied ? GREEN : 0xFFFFFFFF);
             hit(bx, by, btnW, 18, () -> {
                 this.minecraft.keyboardHandler.setClipboard(address);
@@ -312,7 +313,7 @@ public final class HostScreen extends BaseScreen {
 
         List<Guests.View> guests = players.stream().filter(p -> !p.host()).toList();
         if (guests.isEmpty()) {
-            g.round(x, y, w, 26, 5, SURFACE);
+            g.rect(x, y, w, 26, SURFACE);
             String key = HostSession.isHosting() ? "vibey.players.empty" : "vibey.players.offline";
             g.textCenter(g.clip(I18n.get(key), w - 16), x + w / 2, y + 9, DIM);
             return y + 26;
@@ -320,7 +321,7 @@ public final class HostScreen extends BaseScreen {
         for (Guests.View p : guests) {
             int h = 24;
             boolean hov = hover(x, y, w, h);
-            g.round(x, y, w, h, 5, hov ? SURFACE_HOVER : SURFACE);
+            g.rect(x, y, w, h, hov ? SURFACE_HOVER : SURFACE);
             avatar(g, p.id(), p.name(), x + 6, y + 5);
             g.text(g.clip(p.name(), w - 110), x + 26, y + 8, TEXT);
 
@@ -328,7 +329,7 @@ public final class HostScreen extends BaseScreen {
             int kx = x + w - 6 - 16;
             int ky = y + 4;
             boolean kh = hover(kx, ky, 16, 16);
-            if (kh) g.round(kx, ky, 16, 16, 4, 0xFF3A1C1F);
+            if (kh) g.rect(kx, ky, 16, 16, 0xFF3A1C1F);
             cross(g, kx + 4, ky + 4, 8, kh ? RED : DIM);
             UUID id = p.id();
             hit(kx, ky, 16, 16, () -> Guests.kick(id));
@@ -339,7 +340,7 @@ public final class HostScreen extends BaseScreen {
             int ox = kx - 6 - ow;
             boolean oh = hover(ox, ky + 1, ow, 14);
             int bg = p.op() ? (oh ? ACCENT_HOVER : ACCENT) : (oh ? SURFACE_2 : 0xFF24242A);
-            g.round(ox, ky + 1, ow, 14, 4, bg);
+            g.rect(ox, ky + 1, ow, 14, bg);
             g.textCenter(op, ox + ow / 2, ky + 4, p.op() ? 0xFFFFFFFF : MUTED);
             boolean isOp = p.op();
             hit(ox, ky + 1, ow, 14, () -> Guests.setOp(id, !isOp));
@@ -397,7 +398,7 @@ public final class HostScreen extends BaseScreen {
         int ry = y + rowH / 2 - 8;
         boolean rh = canRotate && hover(rx, ry, rw, 16);
         int rbg = !canRotate ? 0xFF1A1A1E : armed ? (rh ? 0xFFFF7A70 : RED) : (rh ? SURFACE_2 : SURFACE);
-        g.round(rx, ry, rw, 16, 4, rbg);
+        g.rect(rx, ry, rw, 16, rbg);
         g.textCenter(rl, rx + rw / 2, ry + 4, !canRotate ? DIM : armed ? 0xFFFFFFFF : TEXT);
         if (canRotate) {
             hit(rx, ry, rw, 16, () -> {
@@ -416,8 +417,8 @@ public final class HostScreen extends BaseScreen {
         int bx = x + w - bw;
         int by = y + rowH / 2 - 8;
         boolean focused = relayBox.isFocused();
-        g.round(bx, by, bw, 16, 4, focused ? SURFACE_2 : SURFACE);
-        if (focused) g.roundOutline(bx, by, bw, 16, 4, ACCENT);
+        g.rect(bx, by, bw, 16, focused ? SURFACE_2 : SURFACE);
+        if (focused) g.outline(bx, by, bw, 16, ACCENT);
         relayBox.setX(bx + 6);
         relayBox.setY(by + 4);
         relayBox.setWidth(bw - 10);
@@ -457,7 +458,7 @@ public final class HostScreen extends BaseScreen {
             bg = hov ? ACCENT_HOVER : ACCENT;
             fg = 0xFFFFFFFF;
         }
-        g.round(bx, by, bw, bh, 5, bg);
+        g.rect(bx, by, bw, bh, bg);
         g.textCenter(label, bx + bw / 2, by + 6, fg);
         if (canHost) {
             hit(bx, by, bw, bh, () -> {
@@ -497,10 +498,10 @@ public final class HostScreen extends BaseScreen {
         float t = anim("t." + id, on ? 1f : 0f, 18f);
         boolean hov = hover(tx - 4, ty - 4, tw + 8, th + 8);
         int track = mix(hov ? 0xFF3A3A44 : 0xFF303038, hov ? ACCENT_HOVER : ACCENT, t);
-        g.round(tx, ty, tw, th, 6, track);
+        g.rect(tx, ty, tw, th, track);
         int knob = th - 4;
         int kx = tx + 2 + Math.round(t * (tw - knob - 4));
-        g.round(kx, ty + 2, knob, knob, knob / 2, mix(0xFFC8C8D0, 0xFFFFFFFF, t));
+        g.rect(kx, ty + 2, knob, knob, mix(0xFFC8C8D0, 0xFFFFFFFF, t));
         hit(tx - 4, ty - 4, tw + 8, th + 8, action);
     }
 
@@ -514,7 +515,7 @@ public final class HostScreen extends BaseScreen {
         int py = cy - 8;
         boolean hl = hover(px, py, pw / 2, 16);
         boolean hr = hover(px + pw / 2, py, pw - pw / 2, 16);
-        g.round(px, py, pw, 16, 4, hl || hr ? SURFACE_HOVER : SURFACE);
+        g.rect(px, py, pw, 16, hl || hr ? SURFACE_HOVER : SURFACE);
         g.textCenter(g.clip(label, pw - 28), px + pw / 2, py + 4, TEXT);
         arrow(g, px + 6, py + 5, false, hl ? TEXT : DIM);
         arrow(g, px + pw - 10, py + 5, true, hr ? TEXT : DIM);
@@ -535,13 +536,13 @@ public final class HostScreen extends BaseScreen {
         int vw = 24;
         int x = right - bw * 2 - vw;
         int y = cy - 8;
-        g.round(x, y, bw * 2 + vw, 16, 4, SURFACE);
+        g.rect(x, y, bw * 2 + vw, 16, SURFACE);
         boolean canDown = value > min;
         boolean canUp = value < max;
         boolean hd = canDown && hover(x, y, bw, 16);
         boolean hu = canUp && hover(x + bw + vw, y, bw, 16);
-        if (hd) g.round(x, y, bw, 16, 4, SURFACE_2);
-        if (hu) g.round(x + bw + vw, y, bw, 16, 4, SURFACE_2);
+        if (hd) g.rect(x, y, bw, 16, SURFACE_2);
+        if (hu) g.rect(x + bw + vw, y, bw, 16, SURFACE_2);
         g.rect(x + 5, y + 7, 6, 2, canDown ? (hd ? TEXT : MUTED) : 0xFF3A3A42);
         int px = x + bw + vw;
         g.rect(px + 5, y + 7, 6, 2, canUp ? (hu ? TEXT : MUTED) : 0xFF3A3A42);
@@ -554,7 +555,7 @@ public final class HostScreen extends BaseScreen {
     private void avatar(Gfx g, UUID id, String name, int x, int y) {
         float hue = (id.hashCode() & 0xFFFF) / 65535f;
         int color = hsv(hue, 0.45f, 0.75f);
-        g.round(x, y, 14, 14, 4, color);
+        g.rect(x, y, 14, 14, color);
         String initial = name.isEmpty() ? "?" : name.substring(0, 1).toUpperCase();
         g.textCenter(initial, x + 7, y + 3, 0xFFFFFFFF);
     }

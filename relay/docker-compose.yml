@@ -5,7 +5,7 @@ services:
     ports:
       - "25565:25565"
     environment:
-      DOMAIN: play.example.com   # your wildcard domain: *.play.example.com -> this server
+      DOMAIN: vibey.henny.dev   # your wildcard domain: *.vibey.henny.dev -> this server
       PORT: "25565"
     volumes:
       - relay-data:/data

@@ -33,46 +33,12 @@ public final class Gfx {
         fill(x, y, x + w, y + h, color);
     }
 
-    /** Filled rectangle with rounded corners, drawn row by row so it stays crisp at every GUI scale. */
-    public void round(int x, int y, int w, int h, int r, int color) {
-        r = Math.max(0, Math.min(r, Math.min(w, h) / 2));
-        if (r == 0) {
-            rect(x, y, w, h, color);
-            return;
-        }
-        fill(x, y + r, x + w, y + h - r, color);
-        for (int i = 0; i < r; i++) {
-            int inset = inset(r, i);
-            fill(x + inset, y + i, x + w - inset, y + i + 1, color);
-            fill(x + inset, y + h - 1 - i, x + w - inset, y + h - i, color);
-        }
-    }
-
-    /** Rounded outline of 1px. */
-    public void roundOutline(int x, int y, int w, int h, int r, int color) {
-        r = Math.max(0, Math.min(r, Math.min(w, h) / 2));
-        int top = r == 0 ? 0 : inset(r, 0);
-        fill(x + top, y, x + w - top, y + 1, color);
-        fill(x + top, y + h - 1, x + w - top, y + h, color);
-        fill(x, y + Math.max(r, 1), x + 1, y + h - Math.max(r, 1), color);
-        fill(x + w - 1, y + Math.max(r, 1), x + w, y + h - Math.max(r, 1), color);
-        for (int i = 1; i < r; i++) {
-            int in = inset(r, i);
-            int end = Math.max(in + 1, inset(r, i - 1));
-            fill(x + in, y + i, x + end, y + i + 1, color);
-            fill(x + w - end, y + i, x + w - in, y + i + 1, color);
-            fill(x + in, y + h - 1 - i, x + end, y + h - i, color);
-            fill(x + w - end, y + h - 1 - i, x + w - in, y + h - i, color);
-        }
-    }
-
-    private static int inset(int r, int row) {
-        double dy = r - row - 0.5;
-        return (int) Math.round(r - Math.sqrt(Math.max(0, r * r - dy * dy)));
-    }
-
-    public void circle(int cx, int cy, int r, int color) {
-        round(cx - r, cy - r, r * 2, r * 2, r, color);
+    /** 1px frame. */
+    public void outline(int x, int y, int w, int h, int color) {
+        fill(x, y, x + w, y + 1, color);
+        fill(x, y + h - 1, x + w, y + h, color);
+        fill(x, y + 1, x + 1, y + h - 1, color);
+        fill(x + w - 1, y + 1, x + w, y + h - 1, color);
     }
 
     public void text(String s, int x, int y, int color) {

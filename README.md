@@ -13,7 +13,7 @@ send it to your friends. They join with a normal, unmodded Minecraft through *Mu
 
 ## Features
 
-- **Your own address.** Every player gets one address like `mossy-otter-27.play.example.com`. It stays the same
+- **Your own address.** Every player gets one address like `mossy-otter-27.vibey.henny.dev`. It stays the same
   every time you host, in every world, until you decide to **renew** it (the old one stops working right away).
 - **Host World** button in the pause menu, in place of *Open to LAN*.
 - **Simple by default:** game mode for guests, cheats, force mods. That's it.
@@ -61,27 +61,28 @@ Fabric needs [Fabric API](https://modrinth.com/mod/fabric-api). The mod only run
 - Your world is published like *Open to LAN*; Vibey connects that port to the relay. Nothing else on your
   computer is reachable.
 - The relay proves who you are with the same Mojang session check servers use, so nobody can take your address.
-- Addresses come from wildcard DNS (`*.play.example.com`) pointing at the relay, so friends never type a port.
+- Addresses come from wildcard DNS (`*.vibey.henny.dev`) pointing at the relay, so friends never type a port.
 - When you are offline, your address still answers in the server list: *"This world is offline"*.
 
 ## Running the relay
 
 The relay is one file without dependencies: [`relay/server.ts`](relay/server.ts) (Node 23.6+ or Bun).
 
-1. Point a wildcard DNS record at your server: `*.play.example.com  A  <server IP>`.
+1. Point a wildcard DNS record at your server: `*.vibey.henny.dev  A  <server IP>`.
 2. Start it:
    ```bash
    cd relay
-   DOMAIN=play.example.com node server.ts
+   DOMAIN=vibey.henny.dev node server.ts
    # or: docker compose up -d   (edit DOMAIN in docker-compose.yml)
    ```
-3. Put the relay address into `default_relay` in [`gradle.properties`](gradle.properties) before building, or
-   let players enter it under *Advanced → Relay server*.
+3. The mod connects to `relay.vibey.henny.dev:25565` by default (`default_relay` in
+   [`gradle.properties`](gradle.properties)). That name is covered by the wildcard record, and `relay` can never be
+   handed out as an address. Players can point to another relay under *Advanced → Relay server*.
 
 | Variable | Default | |
 |---|---|---|
 | `PORT` | `25565` | Port for players **and** hosts |
-| `DOMAIN` | `play.example.com` | Wildcard domain of the addresses |
+| `DOMAIN` | `vibey.henny.dev` | Wildcard domain of the addresses |
 | `PUBLIC_PORT` | `PORT` | Port shown in addresses (if not 25565) |
 | `DATA_DIR` | `./data` | Where address ownership is stored (`addresses.json`) |
 | `HTTP_PORT` | off | `/health` and `/stats` |

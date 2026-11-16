@@ -1,7 +1,7 @@
 // Vibey Multiplayer Relay
 //
 // Tunnel for worlds that are hosted inside a normal Minecraft client (the integrated server). Friends join with a
-// plain, unmodded Minecraft using a fixed address like `mossy-otter-27.play.example.com`; the relay reads the host
+// plain, unmodded Minecraft using a fixed address like `mossy-otter-27.vibey.henny.dev`; the relay reads the host
 // name out of the Minecraft handshake and hands the connection to the client that owns this address.
 //
 // Every player (Mojang UUID) owns exactly one address. It stays the same across sessions and worlds until the
@@ -26,7 +26,7 @@
 //   Data connection (one per joining player):
 //     C -> S  {"t":"data","sid":7,"key":"<hex>"}\n followed by raw bytes in both directions.
 //
-// Environment: PORT (25565), DOMAIN (play.example.com, the wildcard DNS name), PUBLIC_PORT (shown in addresses,
+// Environment: PORT (25565), DOMAIN (vibey.henny.dev, the wildcard DNS name), PUBLIC_PORT (shown in addresses,
 // defaults to PORT), DATA_DIR (./data), ALLOW_OFFLINE (1 = skip the Mojang check, only for local testing),
 // HTTP_PORT (optional health/stats endpoint), MAX_STREAMS (64 per host).
 
@@ -37,7 +37,7 @@ import * as path from "node:path";
 import * as crypto from "node:crypto";
 
 const PORT = Number(process.env.PORT ?? 25565);
-const DOMAIN = (process.env.DOMAIN ?? "play.example.com").toLowerCase().replace(/^\.+|\.+$/g, "");
+const DOMAIN = (process.env.DOMAIN ?? "vibey.henny.dev").toLowerCase().replace(/^\.+|\.+$/g, "");
 const PUBLIC_PORT = Number(process.env.PUBLIC_PORT ?? PORT);
 const DATA_DIR = process.env.DATA_DIR ?? path.join(process.cwd(), "data");
 const ALLOW_OFFLINE = process.env.ALLOW_OFFLINE === "1";
@@ -232,7 +232,7 @@ function parseHandshake(buf: Buffer): Handshake | null {
   return { protocol: proto[0], host, port, next: next[0], length: start + packetLen };
 }
 
-/** `Mossy-Otter-27.play.example.com.\0FML3\0` -> `mossy-otter-27` (or null if it is not one of ours). */
+/** `Mossy-Otter-27.vibey.henny.dev.\0FML3\0` -> `mossy-otter-27` (or null if it is not one of ours). */
 function labelFromHost(host: string): string | null {
   let h = host.split("\0")[0].trim().toLowerCase().replace(/\.+$/, "");
   if (h.endsWith("." + DOMAIN)) h = h.slice(0, -(DOMAIN.length + 1));
