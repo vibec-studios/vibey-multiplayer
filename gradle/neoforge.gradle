@@ -1,0 +1,47 @@
+// NeoForge (Mojang's names at runtime, nothing to remap).
+plugins {
+    id 'java-library'
+    id 'net.neoforged.moddev'
+}
+
+ext.javaVersion = project.minecraft_version.startsWith('1.') ? 21 : 25
+apply from: rootProject.file('gradle/common.gradle')
+
+base { archivesName = "${project.archives_base_name}-neoforge-${project.minecraft_label}" }
+
+repositories {
+    maven { name = 'NeoForged'; url = 'https://maven.neoforged.net/releases' }
+}
+
+neoForge {
+    enable {
+        version = project.neo_version
+        // We only need the game classes, not a decompiled copy: much faster setup.
+        disableRecompilation = true
+    }
+    runs {
+        client {
+            client()
+            gameDirectory = project.file('run')
+        }
+    }
+    mods {
+        vibey { sourceSet(sourceSets.main) }
+    }
+}
+
+sourceSets.main.java { exclude 'dev/henny/vibey/fabric/**' }
+
+processResources {
+    exclude 'fabric.mod.json'
+    exclude 'vibey.fabric.mixins.json'
+    def props = [
+            version            : project.version,
+            mod_id             : project.mod_id,
+            mod_name           : project.mod_name,
+            neo_range          : project.neo_range,
+            minecraft_neo_range: project.minecraft_neo_range,
+    ]
+    inputs.properties(props)
+    filesMatching('META-INF/neoforge.mods.toml') { expand props }
+}

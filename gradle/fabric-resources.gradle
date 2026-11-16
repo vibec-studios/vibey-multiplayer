@@ -1,0 +1,17 @@
+base { archivesName = "${project.archives_base_name}-fabric-${project.minecraft_label}" }
+
+sourceSets.main.java { exclude 'dev/henny/vibey/neoforge/**' }
+
+processResources {
+    exclude 'META-INF/neoforge.mods.toml'
+    def props = [
+            version        : project.version,
+            mod_id         : project.mod_id,
+            mod_name       : project.mod_name,
+            minecraft_range: project.minecraft_range,
+            loader_version : project.loader_version,
+            java           : project.ext.javaVersion,
+    ]
+    inputs.properties(props)
+    filesMatching('fabric.mod.json') { expand props }
+}

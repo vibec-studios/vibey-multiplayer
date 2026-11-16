@@ -1,0 +1,30 @@
+plugins {
+    id 'dev.kikugie.stonecutter'
+    // Declared once so every NeoForge version shares one copy of ModDev.
+    id 'net.neoforged.moddev' version '2.0.147' apply false
+}
+
+stonecutter.active 'fabric-1.21.11' /* [SC] DO NOT EDIT */
+
+// `//? if fabric {` and `//? if neoforge {` in the sources.
+stonecutter.parameters {
+    def loader = node.metadata.project.split('-')[0]
+    constants.match(loader, 'fabric', 'neoforge')
+}
+
+tasks.register('buildAll') {
+    group = 'build'
+    description = 'Builds every Fabric and NeoForge version and collects the jars in build/dist.'
+    def projects = rootProject.subprojects.findAll { it.name.startsWith('fabric-') || it.name.startsWith('neoforge-') }
+    dependsOn projects.collect { "${it.path}:build" }
+    doLast {
+        def dist = rootProject.layout.buildDirectory.dir('dist').get().asFile
+        dist.mkdirs()
+        projects.each { p ->
+            p.layout.buildDirectory.dir('libs').get().asFile.listFiles()?.findAll { it.name.endsWith('.jar') && !it.name.contains('-sources') }?.each { jar ->
+                java.nio.file.Files.copy(jar.toPath(), new File(dist, jar.name).toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+            }
+        }
+        println "Jars in ${dist}"
+    }
+}

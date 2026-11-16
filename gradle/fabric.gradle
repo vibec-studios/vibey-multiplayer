@@ -1,0 +1,44 @@
+// Fabric, Minecraft 1.21.x (obfuscated game, compiled with Mojang's official names and remapped by Loom).
+plugins {
+    id 'fabric-loom' version '1.15-SNAPSHOT'
+}
+
+ext.javaVersion = 21
+apply from: rootProject.file('gradle/common.gradle')
+
+dependencies {
+    minecraft "com.mojang:minecraft:${project.minecraft_version}"
+    mappings loom.officialMojangMappings()
+    modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
+    modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
+}
+
+loom {
+    runs {
+        client { runDir = 'run' }
+        server { runDir = 'run-server' }
+    }
+}
+
+apply from: rootProject.file('gradle/fabric-resources.gradle')
+
+// Client game test (only for the version the sources are written in): ./gradlew :fabric-1.21.11:runClientGameTest
+if (project.minecraft_version == '1.21.11') {
+    fabricApi {
+        configureTests {
+            createSourceSet = true
+            modId = 'vibey-gametest'
+            enableGameTests = false
+            enableClientGameTests = true
+            eula = true
+        }
+    }
+    sourceSets.named('gametest') {
+        java.srcDirs = [rootProject.file('src/gametest/java')]
+        resources.srcDirs = [rootProject.file('src/gametest/resources')]
+    }
+    loom.runs.named('clientGameTest') {
+        vmArg '-Dfabric.client.gametest.disableNetworkSynchronizer=true'
+        vmArg "-Dvibey.test.relay=${System.getProperty('vibey.test.relay', '127.0.0.1:26400')}"
+    }
+}

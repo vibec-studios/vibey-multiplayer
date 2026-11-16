@@ -1,0 +1,22 @@
+// Fabric, Minecraft 26.x (the game ships unobfuscated, no mappings and no remapping).
+plugins {
+    id 'net.fabricmc.fabric-loom' version '1.15-SNAPSHOT'
+}
+
+ext.javaVersion = 25
+apply from: rootProject.file('gradle/common.gradle')
+
+dependencies {
+    minecraft "com.mojang:minecraft:${project.minecraft_version}"
+    implementation "net.fabricmc:fabric-loader:${project.loader_version}"
+    implementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
+}
+
+loom {
+    runs {
+        client { runDir = 'run' }
+        server { runDir = 'run-server' }
+    }
+}
+
+apply from: rootProject.file('gradle/fabric-resources.gradle')

@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "id": "vibey-gametest",
+  "version": "1.0.0",
+  "name": "Vibey Gametest",
+  "environment": "client",
+  "entrypoints": {
+    "fabric-client-gametest": ["dev.henny.vibey.gametest.VibeyClientGameTest"]
+  },
+  "depends": { "vibey": "*" }
+}

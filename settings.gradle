@@ -1,0 +1,49 @@
+pluginManagement {
+    repositories {
+        maven { name = 'Fabric'; url = 'https://maven.fabricmc.net/' }
+        maven { name = 'NeoForged'; url = 'https://maven.neoforged.net/releases' }
+        maven { name = 'KikuGie'; url = 'https://maven.kikugie.dev/releases' }
+        mavenCentral()
+        gradlePluginPortal()
+    }
+}
+
+plugins {
+    id 'dev.kikugie.stonecutter' version '0.9.5'
+}
+
+rootProject.name = 'vibey-multiplayer'
+
+// One jar per Minecraft line. The second value is the version the code is compiled against (and what
+// `//? if >=1.21.9` comments compare to); `minecraft_range` in versions/<name>/gradle.properties says where it runs.
+def fabric = { String name, String mc, String script -> [name: "fabric-$name", mc: mc, script: script] }
+def neo = { String name, String mc -> [name: "neoforge-$name", mc: mc, script: 'gradle/neoforge.gradle'] }
+def targets = [
+        fabric('1.21.1', '1.21.1', 'gradle/fabric.gradle'),
+        fabric('1.21.3', '1.21.3', 'gradle/fabric.gradle'),
+        fabric('1.21.4', '1.21.4', 'gradle/fabric.gradle'),
+        fabric('1.21.5', '1.21.5', 'gradle/fabric.gradle'),
+        fabric('1.21.8', '1.21.6', 'gradle/fabric.gradle'),
+        fabric('1.21.10', '1.21.9', 'gradle/fabric.gradle'),
+        fabric('1.21.11', '1.21.11', 'gradle/fabric.gradle'),
+        fabric('26.1', '26.1', 'gradle/fabric-26.gradle'),
+        fabric('26.2', '26.2', 'gradle/fabric-26.gradle'),
+        fabric('26.3', '26.3', 'gradle/fabric-26.gradle'),
+        neo('1.21.1', '1.21.1'),
+        neo('1.21.3', '1.21.3'),
+        neo('1.21.4', '1.21.4'),
+        neo('1.21.5', '1.21.5'),
+        neo('1.21.8', '1.21.6'),
+        neo('1.21.10', '1.21.9'),
+        neo('1.21.11', '1.21.11'),
+        neo('26.1', '26.1'),
+        neo('26.2', '26.2'),
+        neo('26.3', '26.3'),
+]
+
+stonecutter {
+    create(getRootProject()) {
+        targets.each { t -> version(t.name, t.mc).buildscript(t.script) }
+        vcsVersion = 'fabric-1.21.11'
+    }
+}
