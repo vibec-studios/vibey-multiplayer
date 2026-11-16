@@ -20,7 +20,12 @@
 //     C -> S  {"t":"auth"}                                   relay checks Mojang hasJoined
 //     S -> C  {"t":"ready","address":"a-b-12.domain","label":"a-b-12","domain":"domain","port":25565}
 //     C -> S  {"t":"rotate"}                                 new address, answered with "ready"
-//     S -> C  {"t":"open","sid":7,"key":"<hex>","ip":"1.2.3.4"}   a player knocked, open a data connection
+//     C -> S  {"t":"access","whitelist":["name"]|null,"banNames":["name"],"banIps":["1.2.3.4"],
+//              "messages":{"banned":"...","whitelist":"..."}}
+//             Who may reach this world at all. Enforced here, before a byte reaches the host.
+//     S -> C  {"t":"open","sid":7,"key":"<hex>","ip":"1.2.3.4","state":2,"name":"Steve","uuid":"..."}
+//             a player knocked, open a data connection (name/uuid only for joins, not for server list pings)
+//     S -> C  {"t":"blocked","name":"Steve","ip":"1.2.3.4","reason":"banned"|"whitelist"}
 //     C -> S  {"t":"ping"}  /  S -> C {"t":"pong"}
 //     S -> C  {"t":"error","code":"...","msg":"..."}, {"t":"replaced"} (same account hosted somewhere else)
 //   Data connection (one per joining player):
@@ -28,7 +33,7 @@
 //
 // Environment: PORT (25565), DOMAIN (vibey.henny.dev, the wildcard DNS name), PUBLIC_PORT (shown in addresses,
 // defaults to PORT), DATA_DIR (./data), ALLOW_OFFLINE (1 = skip the Mojang check, only for local testing),
-// HTTP_PORT (optional health/stats endpoint), MAX_STREAMS (64 per host).
+// HTTP_PORT (optional: /health and /status for the status page), MAX_STREAMS (64 per host).
 
 import * as net from "node:net";
 import * as http from "node:http";
@@ -47,6 +52,8 @@ const SESSION_SERVER = process.env.SESSION_SERVER ?? "https://sessionserver.moja
 
 const MAGIC = Buffer.from([0x00, 0x56, 0x42, 0x59]); // 0x00 "VBY"
 const PROTOCOL = 1;
+const RELAY_VERSION = "1.1.0";
+const STARTED = Date.now();
 const HANDSHAKE_TIMEOUT_MS = 8_000;
 const DATA_CONNECT_TIMEOUT_MS = 10_000;
 const CONTROL_IDLE_MS = 75_000;
@@ -135,7 +142,18 @@ function addressOf(label: string): string {
 
 // ------------------------------------------------------------------------------------------------ Hosts
 
-type Pending = { player: net.Socket; head: Buffer; timer: NodeJS.Timeout; key: string };
+type Pending = { player: net.Socket; head: Buffer; timer: NodeJS.Timeout; key: string; login: Login | null; ip: string };
+
+type Login = { name: string; uuid: string };
+
+type Access = {
+  whitelist: Set<string> | null; // lower-case names, null = everyone may join
+  banNames: Set<string>;
+  banIps: Set<string>;
+  messages: { banned: string; whitelist: string };
+};
+
+type Player = { name: string; uuid: string; ip: string; since: number };
 
 type Host = {
   sock: net.Socket;
@@ -148,7 +166,44 @@ type Host = {
   live: Set<net.Socket>;
   rotations: number[];
   lastSeen: number;
+  since: number;
+  mc: string;
+  access: Access;
+  players: Map<net.Socket, Player>;
 };
+
+const stats = { joins: 0, pings: 0, blocked: 0 };
+
+function defaultAccess(): Access {
+  return {
+    whitelist: null,
+    banNames: new Set(),
+    banIps: new Set(),
+    messages: { banned: "You are banned from this world.", whitelist: "You are not on the whitelist of this world." },
+  };
+}
+
+function nameList(v: unknown): string[] {
+  if (!Array.isArray(v)) return [];
+  return v.map((x) => String(x).trim().toLowerCase()).filter((x) => /^[a-z0-9_]{1,16}$/.test(x)).slice(0, 1000);
+}
+
+function ipList(v: unknown): string[] {
+  if (!Array.isArray(v)) return [];
+  return v.map((x) => String(x).trim().replace(/^::ffff:/, "")).filter((x) => /^[0-9a-f.:]{3,45}$/i.test(x)).slice(0, 1000);
+}
+
+function parseAccess(msg: any): Access {
+  const a = defaultAccess();
+  a.whitelist = msg.whitelist == null ? null : new Set(nameList(msg.whitelist));
+  a.banNames = new Set(nameList(msg.banNames));
+  a.banIps = new Set(ipList(msg.banIps));
+  if (msg.messages && typeof msg.messages === "object") {
+    if (typeof msg.messages.banned === "string") a.messages.banned = msg.messages.banned.slice(0, 256);
+    if (typeof msg.messages.whitelist === "string") a.messages.whitelist = msg.messages.whitelist.slice(0, 256);
+  }
+  return a;
+}
 
 const hostsByUuid = new Map<string, Host>();
 
@@ -169,6 +224,7 @@ function dropHost(h: Host) {
   h.pending.clear();
   for (const s of h.live) s.destroy();
   h.live.clear();
+  h.players.clear();
 }
 
 // ------------------------------------------------------------------------------------------------ Minecraft wire
@@ -232,6 +288,26 @@ function parseHandshake(buf: Buffer): Handshake | null {
   return { protocol: proto[0], host, port, next: next[0], length: start + packetLen };
 }
 
+/** Login Start (1.20.2+): name + UUID. Returns null when more bytes are needed, throws on garbage. */
+function parseLoginStart(buf: Buffer, off: number): Login | null {
+  const len = readVarInt(buf, off);
+  if (!len) return null;
+  const [packetLen, start] = len;
+  if (packetLen <= 0 || packetLen > 512) throw new Error("bad login length");
+  if (buf.length < start + packetLen) return null;
+  let o = start;
+  const id = readVarInt(buf, o);
+  if (!id || id[0] !== 0) throw new Error("not a login start");
+  o = id[1];
+  const n = readVarInt(buf, o)!;
+  o = n[1];
+  if (n[0] > 64) throw new Error("name too long");
+  const name = buf.subarray(o, o + n[0]).toString("utf8");
+  o += n[0];
+  const uuid = start + packetLen - o >= 16 ? buf.subarray(o, o + 16).toString("hex") : "";
+  return { name, uuid };
+}
+
 /** `Mossy-Otter-27.vibey.henny.dev.\0FML3\0` -> `mossy-otter-27` (or null if it is not one of ours). */
 function labelFromHost(host: string): string | null {
   let h = host.split("\0")[0].trim().toLowerCase().replace(/\.+$/, "");
@@ -246,7 +322,7 @@ function chat(text: string, color = "gray") {
 }
 
 /** Answers a Minecraft client that cannot reach a host: a status entry in the server list or a kick on join. */
-function offlineKick(sock: net.Socket, head: Buffer, reason = "offline") {
+function offlineKick(sock: net.Socket, head: Buffer, reason = "offline", custom?: { title: string; sub: string }) {
   let hs: Handshake | null = null;
   try {
     hs = parseHandshake(head);
@@ -254,10 +330,12 @@ function offlineKick(sock: net.Socket, head: Buffer, reason = "offline") {
     hs = null;
   }
   if (!hs) return sock.destroy();
-  const title = reason === "unknown" ? "Unknown address" : "This world is offline";
-  const sub = reason === "unknown"
-    ? "Check the address or ask the host for a new one."
-    : "The host is not playing right now. Try again later.";
+  const title = custom ? custom.title : reason === "unknown" ? "Unknown address" : "This world is offline";
+  const sub = custom
+    ? custom.sub
+    : reason === "unknown"
+      ? "Check the address or ask the host for a new one."
+      : "The host is not playing right now. Try again later.";
   if (hs.next === 1) {
     const status = {
       version: { name: "Vibey", protocol: hs.protocol },
@@ -386,6 +464,7 @@ function startControl(sock: net.Socket, ip: string, hello: any): ((msg: any) => 
   const serverId = crypto.randomBytes(16).toString("hex");
   let host: Host | null = null;
   let authing = false;
+  let pendingAccess: Access | null = null;
   sendJson(sock, { t: "challenge", serverId });
   sock.setTimeout(CONTROL_IDLE_MS, () => sock.destroy());
 
@@ -402,6 +481,12 @@ function startControl(sock: net.Socket, ip: string, hello: any): ((msg: any) => 
     if (msg.t === "ping") {
       if (host) host.lastSeen = Date.now();
       return sendJson(sock, { t: "pong" });
+    }
+    if (msg.t === "access") {
+      const a = parseAccess(msg);
+      if (host) host.access = a;
+      else pendingAccess = a;
+      return;
     }
     if (msg.t === "auth" && !host && !authing) {
       authing = true;
@@ -425,7 +510,8 @@ function startControl(sock: net.Socket, ip: string, hello: any): ((msg: any) => 
       }
       host = {
         sock, uuid, name: realName, label: labelFor(uuid, false), ip, nextSid: 1,
-        pending: new Map(), live: new Set(), rotations: [], lastSeen: Date.now(),
+        pending: new Map(), live: new Set(), rotations: [], lastSeen: Date.now(), since: Date.now(),
+        mc: String(hello.mc ?? "").slice(0, 24), access: pendingAccess ?? defaultAccess(), players: new Map(),
       };
       hostsByUuid.set(uuid, host);
       log(`host online ${realName} -> ${host.label}`);
@@ -468,6 +554,8 @@ function startData(sock: net.Socket, msg: any): ((rest: Buffer) => void) | null 
   clearTimeout(target.timer);
   const player = target.player;
   const head = target.head;
+  const login = target.login;
+  const pip = target.ip;
   const h = owner;
   sock.setNoDelay(true);
   return (rest: Buffer) => {
@@ -479,9 +567,14 @@ function startData(sock: net.Socket, msg: any): ((rest: Buffer) => void) | null 
     player.resume();
     h.live.add(player);
     h.live.add(sock);
+    if (login) {
+      stats.joins++;
+      h.players.set(player, { name: login.name, uuid: login.uuid, ip: pip, since: Date.now() });
+    }
     const done = () => {
       h.live.delete(player);
       h.live.delete(sock);
+      h.players.delete(player);
       player.destroy();
       sock.destroy();
     };
@@ -492,19 +585,33 @@ function startData(sock: net.Socket, msg: any): ((rest: Buffer) => void) | null 
   };
 }
 
+function blockedText(host: Host, reason: "banned" | "whitelist") {
+  return { title: reason === "banned" ? host.access.messages.banned : host.access.messages.whitelist, sub: "" };
+}
+
 function handlePlayer(sock: net.Socket, first: Buffer, ip: string) {
   let buf = first;
+  let hs: Handshake | null = null;
   const timer = setTimeout(() => sock.destroy(), HANDSHAKE_TIMEOUT_MS);
   const attempt = () => {
-    let hs: Handshake | null;
+    let login: Login | null = null;
+    let host: Host | undefined;
+    let uuid: string | undefined;
     try {
-      hs = parseHandshake(buf);
+      if (!hs) hs = parseHandshake(buf);
+      if (hs) {
+        const label = labelFromHost(hs.host);
+        uuid = label ? labelOwner.get(label) : undefined;
+        host = uuid ? hostsByUuid.get(uuid) : undefined;
+      }
+      // Joins send Login Start right after the handshake; we need the name for whitelist and ban list.
+      if (hs && host && hs.next !== 1) login = parseLoginStart(buf, hs.length);
     } catch {
       clearTimeout(timer);
       return sock.destroy();
     }
-    if (!hs) {
-      if (buf.length > 2048) {
+    if (!hs || (host && hs.next !== 1 && !login)) {
+      if (buf.length > 4096) {
         clearTimeout(timer);
         sock.destroy();
       }
@@ -513,17 +620,29 @@ function handlePlayer(sock: net.Socket, first: Buffer, ip: string) {
     clearTimeout(timer);
     sock.off("data", onData);
     sock.pause();
-    const label = labelFromHost(hs.host);
-    const uuid = label ? labelOwner.get(label) : undefined;
-    const host = uuid ? hostsByUuid.get(uuid) : undefined;
     if (!host) {
       sock.resume();
       return offlineKick(sock, buf, uuid ? "offline" : "unknown");
     }
+
+    // Network level access control: blocked players never reach the host.
+    const acc = host.access;
+    let blocked: "banned" | "whitelist" | null = null;
+    if (acc.banIps.has(ip)) blocked = "banned";
+    else if (login && acc.banNames.has(login.name.toLowerCase())) blocked = "banned";
+    else if (login && acc.whitelist && !acc.whitelist.has(login.name.toLowerCase())) blocked = "whitelist";
+    if (blocked) {
+      stats.blocked++;
+      sock.resume();
+      if (login) sendJson(host.sock, { t: "blocked", name: login.name, ip, reason: blocked });
+      return offlineKick(sock, buf, "blocked", blockedText(host, blocked));
+    }
+
     if (host.pending.size + host.live.size / 2 >= MAX_STREAMS) {
       sock.resume();
       return offlineKick(sock, buf, "offline");
     }
+    if (hs.next === 1) stats.pings++;
     const sid = host.nextSid++;
     const key = crypto.randomBytes(16).toString("hex");
     const head = buf;
@@ -531,6 +650,8 @@ function handlePlayer(sock: net.Socket, first: Buffer, ip: string) {
       player: sock,
       head,
       key,
+      login,
+      ip,
       timer: setTimeout(() => {
         host.pending.delete(sid);
         sock.resume();
@@ -538,7 +659,12 @@ function handlePlayer(sock: net.Socket, first: Buffer, ip: string) {
       }, DATA_CONNECT_TIMEOUT_MS),
     };
     host.pending.set(sid, p);
-    sendJson(host.sock, { t: "open", sid, key, ip, state: hs.next });
+    const open: Record<string, unknown> = { t: "open", sid, key, ip, state: hs.next };
+    if (login) {
+      open.name = login.name;
+      open.uuid = login.uuid;
+    }
+    sendJson(host.sock, open);
   };
   const onData = (d: Buffer) => {
     buf = Buffer.concat([buf, d]);
@@ -565,18 +691,44 @@ const server = net.createServer((sock) => {
 loadStore();
 server.listen(PORT, () => log(`Vibey relay on :${PORT}, addresses *.${DOMAIN}${ALLOW_OFFLINE ? " (offline mode!)" : ""}`));
 
+/** Public numbers for the status page. No names, no addresses, no IPs. */
+function statusJson() {
+  const worlds = [...hostsByUuid.values()].map((h) => ({
+    players: h.players.size,
+    since: new Date(h.since).toISOString(),
+    mc: h.mc,
+  }));
+  worlds.sort((a, b) => b.players - a.players);
+  const mem = process.memoryUsage();
+  return {
+    ok: true,
+    version: RELAY_VERSION,
+    time: new Date().toISOString(),
+    uptime: Math.round((Date.now() - STARTED) / 1000),
+    worlds: worlds.length,
+    players: worlds.reduce((n, w) => n + w.players, 0),
+    addresses: labelOwner.size,
+    totals: { joins: stats.joins, pings: stats.pings, blocked: stats.blocked },
+    health: { relay: "ok", memoryMb: Math.round(mem.rss / 1048576) },
+    list: worlds.slice(0, 50),
+  };
+}
+
 if (HTTP_PORT) {
   http
     .createServer((req, res) => {
-      if (req.url === "/health") return res.end("ok");
-      if (req.url === "/stats") {
+      res.setHeader("access-control-allow-origin", "*");
+      res.setHeader("cache-control", "no-store");
+      const path = (req.url ?? "/").split("?")[0];
+      if (path === "/health") return res.end("ok");
+      if (path === "/status" || path === "/stats") {
         res.setHeader("content-type", "application/json");
-        return res.end(JSON.stringify({ hosts: hostsByUuid.size, addresses: labelOwner.size }));
+        return res.end(JSON.stringify(statusJson()));
       }
       res.statusCode = 404;
       res.end();
     })
-    .listen(HTTP_PORT);
+    .listen(HTTP_PORT, () => log(`status on :${HTTP_PORT}`));
 }
 
 // Drop hosts that stopped pinging (sleeping laptops, dead NATs).

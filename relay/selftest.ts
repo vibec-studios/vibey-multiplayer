@@ -38,6 +38,11 @@ function handshake(host: string, next: number) {
 }
 
 const MAGIC = Buffer.from([0x00, 0x56, 0x42, 0x59]);
+const HTTP_PORT = PORT + 1;
+
+function loginStart(name: string) {
+  return packet(0, Buffer.concat([str(name), Buffer.alloc(16, 0xab)]));
+}
 
 function lines(sock: net.Socket, cb: (msg: any) => void) {
   let buf = Buffer.alloc(0);
@@ -73,7 +78,7 @@ function assert(cond: unknown, msg: string) {
 
 async function main() {
   const relay = spawn(process.execPath, [path.join(here, "server.ts")], {
-    env: { ...process.env, PORT: String(PORT), DOMAIN, DATA_DIR: dataDir, ALLOW_OFFLINE: "1" },
+    env: { ...process.env, PORT: String(PORT), DOMAIN, DATA_DIR: dataDir, ALLOW_OFFLINE: "1", HTTP_PORT: String(HTTP_PORT) },
     stdio: ["ignore", "inherit", "inherit"],
   });
   await new Promise((r) => setTimeout(r, 800));
@@ -97,8 +102,12 @@ async function main() {
     // 3) Host control connection.
     const ctl = net.connect(PORT, "127.0.0.1");
     await new Promise((r) => ctl.once("connect", r));
+    const opens: any[] = [];
+    const blockedMsgs: any[] = [];
     const ready = new Promise<any>((resolve) => {
       lines(ctl, (msg) => {
+        if (msg.t === "open") opens.push(msg);
+        if (msg.t === "blocked") blockedMsgs.push(msg);
         if (msg.t === "challenge") ctl.write(JSON.stringify({ t: "auth" }) + "\n");
         if (msg.t === "ready") resolve(msg);
         if (msg.t === "open") {
@@ -120,10 +129,14 @@ async function main() {
     {
       const p = net.connect(PORT, "127.0.0.1");
       await new Promise((r) => p.once("connect", r));
-      const hs = handshake(r1.label.toUpperCase() + "." + DOMAIN + ".\0FML3\0", 2);
+      const hs = Buffer.concat([handshake(r1.label.toUpperCase() + "." + DOMAIN + ".\0FML3\0", 2), loginStart("Steve")]);
       p.write(hs);
       const echoed = await collect(p, (b) => b.length >= hs.length + 3);
       assert(echoed.subarray(0, 3).toString() === "MC:" && echoed.subarray(3).equals(hs), "handshake reaches the host unchanged");
+      assert(opens.some((o) => o.name === "Steve" && o.state === 2), "host learns the name of the joining player");
+      const st = await (await fetch(`http://127.0.0.1:${HTTP_PORT}/status`)).json();
+      assert(st.ok && st.worlds === 1 && st.players === 1, "status API counts 1 world and 1 player");
+      assert(!JSON.stringify(st).includes("Steve") && !JSON.stringify(st).includes(r1.label), "status API leaks no names or addresses");
       const big = Buffer.alloc(512 * 1024, 7);
       const back = collect(p, (b) => b.length >= big.length + 3 * Math.ceil(big.length / 65536), 8000);
       p.write(big);
@@ -131,6 +144,28 @@ async function main() {
       assert(got.length >= big.length, "large payload flows through the tunnel (" + got.length + " bytes back)");
       p.destroy();
     }
+
+    // 4b) Access control on network level.
+    const deny = async (name: string, expect: string, label: string) => {
+      const p = net.connect(PORT, "127.0.0.1");
+      await new Promise((r) => p.once("connect", r));
+      p.write(Buffer.concat([handshake(r1.label + "." + DOMAIN, 2), loginStart(name)]));
+      const got = await collect(p, (b) => b.includes(Buffer.from(expect)));
+      assert(got.length > 0, label);
+      p.destroy();
+    };
+    const opensBefore = opens.length;
+    ctl.write(JSON.stringify({ t: "access", whitelist: ["Alex"], banNames: ["griefer"], banIps: [], messages: { banned: "GEBANNT", whitelist: "NICHT AUF DER LISTE" } }) + "\n");
+    await new Promise((r) => setTimeout(r, 100));
+    await deny("Steve", "NICHT AUF DER LISTE", "whitelist blocks players that are not on it");
+    await deny("Griefer", "GEBANNT", "banned name is blocked (case-insensitive)");
+    ctl.write(JSON.stringify({ t: "access", whitelist: null, banNames: [], banIps: ["127.0.0.1"] }) + "\n");
+    await new Promise((r) => setTimeout(r, 100));
+    await deny("Alex", "banned", "banned IP is blocked even with a fresh name");
+    assert(opens.length === opensBefore, "blocked players never reach the host");
+    assert(blockedMsgs.length === 3, "host is told about every blocked join");
+    ctl.write(JSON.stringify({ t: "access", whitelist: null, banNames: [], banIps: [] }) + "\n");
+    await new Promise((r) => setTimeout(r, 100));
 
     // 5) Same account reconnects -> same address.
     // 6) Rotation -> new address, old one is dead.

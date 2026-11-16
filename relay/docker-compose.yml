@@ -3,10 +3,12 @@ services:
     build: .
     restart: unless-stopped
     ports:
-      - "25565:25565"
+      - "25565:25565"   # Minecraft players and hosts
+      - "8765:8765"     # /status and /health (read by the status proxy, no secrets)
     environment:
-      DOMAIN: vibey.henny.dev   # your wildcard domain: *.vibey.henny.dev -> this server
+      DOMAIN: vibey.henny.dev   # wildcard DNS (DNS only, no proxy): *.vibey.henny.dev -> this server
       PORT: "25565"
+      HTTP_PORT: "8765"
     volumes:
       - relay-data:/data
 volumes:
