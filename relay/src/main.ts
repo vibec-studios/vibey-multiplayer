@@ -29,6 +29,7 @@ function dropSilentHosts() {
 }
 
 addresses.load();
+addresses.checkWritable();
 const relay = net.createServer(accept).listen(PORT, () => {
   log(`Vibey relay ${VERSION} on :${PORT}, addresses *.${DOMAIN}${ALLOW_OFFLINE ? " (offline mode!)" : ""}`);
 });

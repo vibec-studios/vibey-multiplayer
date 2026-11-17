@@ -10,6 +10,6 @@ services:
       PORT: "25565"
       HTTP_PORT: "8765"
     volumes:
-      - relay-data:/data
+      - addresses:/data
 volumes:
-  relay-data:
+  addresses:

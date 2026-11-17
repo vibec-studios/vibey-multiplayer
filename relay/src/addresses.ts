@@ -29,10 +29,23 @@ export function flush() {
   if (!saveTimer) return;
   clearTimeout(saveTimer);
   saveTimer = null;
-  fs.mkdirSync(DATA_DIR, { recursive: true });
-  const tmp = file + ".tmp";
-  fs.writeFileSync(tmp, JSON.stringify({ owners: Object.fromEntries(labelOf) }, null, 1));
-  fs.renameSync(tmp, file);
+  try {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+    const tmp = file + ".tmp";
+    fs.writeFileSync(tmp, JSON.stringify({ owners: Object.fromEntries(labelOf) }, null, 1));
+    fs.renameSync(tmp, file);
+  } catch (e) {
+    log("could not save", file, (e as Error).message);
+  }
+}
+
+export function checkWritable() {
+  try {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+    fs.accessSync(DATA_DIR, fs.constants.W_OK);
+  } catch (e) {
+    log(`WARNING: ${DATA_DIR} is not writable, addresses will not survive a restart:`, (e as Error).message);
+  }
 }
 
 function save() {
