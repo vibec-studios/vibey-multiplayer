@@ -5,6 +5,7 @@ export type Text = { title: string; sub: string };
 
 export const UNKNOWN: Text = { title: "Unknown address", sub: "Check the address or ask the host for a new one." };
 export const OFFLINE: Text = { title: "This world is offline", sub: "The host is not playing right now. Try again later." };
+export const FULL: Text = { title: "This world is full", sub: "All player slots are taken. Try again later." };
 export const BUSY: Text = { title: "This world is busy", sub: "Too many connections right now. Try again in a moment." };
 
 const PING = 0x01;

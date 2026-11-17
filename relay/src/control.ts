@@ -2,21 +2,32 @@ import * as crypto from "node:crypto";
 import type * as net from "node:net";
 import { openAccess, parseAccess } from "./access.ts";
 import { addressOf, labelFor } from "./addresses.ts";
-import { ALLOW_OFFLINE, AUTH_TIMEOUT_MS, DOMAIN, PROTOCOL, PUBLIC_PORT, ROTATIONS_PER_HOUR, log } from "./config.ts";
-import { type Host, drop, register } from "./hosts.ts";
+import { authorize } from "./backend.ts";
+import { ALLOW_OFFLINE, AUTH_TIMEOUT_MS, DOMAIN, MAX_SLOT, PROTOCOL, PUBLIC_PORT, ROTATIONS_PER_HOUR, log } from "./config.ts";
+import { type Client, type Host, type Kind, drop, hostsOf, register } from "./hosts.ts";
 import { type Msg, send } from "./lines.ts";
 import { hasJoined, normUuid } from "./mojang.ts";
 
 const HOUR = 3_600_000;
+const KINDS: Kind[] = ["world", "server"];
+const CLIENTS: Client[] = ["mod", "launcher"];
 
 export function startControl(sock: net.Socket, ip: string, hello: Msg): (msg: Msg) => void {
   const name = String(hello.name ?? "");
   const claimed = normUuid(hello.uuid);
   if (Number(hello.v) !== PROTOCOL) return fail(sock, "version", "Please update Vibey Multiplayer.");
   if (!/^[A-Za-z0-9_]{1,16}$/.test(name) || claimed.length !== 32) return fail(sock, "bad_hello", "Invalid profile.");
+  // Optional since relay 1.3; a hello without them is exactly the old one-world-per-account hello.
+  const slot = hello.slot == null ? 0 : Number(hello.slot);
+  const kind = (hello.kind ?? "world") as Kind;
+  const client = (hello.client ?? "mod") as Client;
+  if (!Number.isInteger(slot) || slot < 0 || slot > MAX_SLOT) return fail(sock, "bad_hello", `Invalid slot (0-${MAX_SLOT}).`);
+  if (!KINDS.includes(kind)) return fail(sock, "bad_hello", "Invalid kind.");
+  if (!CLIENTS.includes(client)) return fail(sock, "bad_hello", "Invalid client.");
 
   const serverId = crypto.randomBytes(16).toString("hex");
   const mc = String(hello.mc ?? "").slice(0, 24);
+  const version = String(hello.version ?? hello.mod ?? "").slice(0, 32);
   let access = openAccess();
   let host: Host | null = null;
   let authing = false;
@@ -25,7 +36,6 @@ export function startControl(sock: net.Socket, ip: string, hello: Msg): (msg: Ms
   sock.on("close", () => {
     clearTimeout(authTimer);
     if (!host) return;
-    log(`host offline ${host.name}`);
     drop(host);
     host = null;
   });
@@ -39,13 +49,33 @@ export function startControl(sock: net.Socket, ip: string, hello: Msg): (msg: Ms
       return;
     }
     if (sock.destroyed) return;
+    const decision = await authorize({
+      uuid: claimed, name: profile.name, ip, client, kind, slot, mc, version, active: hostsOf(claimed, slot).length,
+    });
+    if (sock.destroyed) return;
+    if (!decision.allow) {
+      log(`host refused ${profile.name}#${slot}: ${decision.code}`);
+      fail(sock, decision.code, decision.message);
+      return;
+    }
+    // Counted again after the await: another slot of the same account may have come online meanwhile.
+    const others = hostsOf(claimed, slot).length;
+    if (others >= decision.maxHosts) {
+      log(`host refused ${profile.name}#${slot}: limit ${decision.maxHosts}`);
+      const msg = decision.maxHosts === 0
+        ? "Hosting is not available for this account."
+        : `This account already hosts ${others} of ${decision.maxHosts} possible worlds or servers. Stop one first.`;
+      fail(sock, "limit", msg);
+      return;
+    }
     const now = Date.now();
     host = {
-      sock, uuid: claimed, name: profile.name, label: labelFor(claimed), ip, mc, since: now, lastSeen: now,
+      sock, uuid: claimed, name: profile.name, slot, kind, client, version, maxPlayers: decision.maxPlayers,
+      label: labelFor(claimed, slot), ip, mc, since: now, lastSeen: now,
       access, rotations: [], streams: 0, live: new Set(), players: new Map(),
     };
     register(host);
-    log(`host online ${host.name} -> ${host.label}`);
+    log(`host online ${host.name}#${slot} (${client} ${kind}) -> ${host.label}`);
     send(sock, ready(host));
   };
 
@@ -57,12 +87,14 @@ export function startControl(sock: net.Socket, ip: string, hello: Msg): (msg: Ms
     }
     h.rotations.push(now);
     const old = h.label;
-    h.label = labelFor(h.uuid, true);
-    log(`host ${h.name} rotated ${old} -> ${h.label}`);
+    h.label = labelFor(h.uuid, h.slot, true);
+    log(`host ${h.name}#${h.slot} rotated ${old} -> ${h.label}`);
     send(sock, ready(h));
   };
 
   return (msg) => {
+    // A replaced or kicked session may still talk until its socket closes; it must not touch the slot anymore.
+    if (host?.gone) return;
     if (host) host.lastSeen = Date.now();
     switch (msg.t) {
       case "ping":
@@ -82,7 +114,7 @@ export function startControl(sock: net.Socket, ip: string, hello: Msg): (msg: Ms
 }
 
 function ready(h: Host): Msg {
-  return { t: "ready", address: addressOf(h.label), label: h.label, domain: DOMAIN, port: PUBLIC_PORT };
+  return { t: "ready", address: addressOf(h.label), label: h.label, domain: DOMAIN, port: PUBLIC_PORT, slot: h.slot };
 }
 
 function fail(sock: net.Socket, code: string, msg: string): () => void {

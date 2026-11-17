@@ -1,8 +1,9 @@
 import * as net from "node:net";
 import { normalizeIp } from "./access.ts";
 import * as addresses from "./addresses.ts";
+import { enabled as backendEnabled, settings, startBackend } from "./backend.ts";
 import { ALLOW_OFFLINE, CONTROL_IDLE_MS, DOMAIN, FIRST_BYTES_TIMEOUT_MS, HTTP_PORT, MAGIC, PORT, VERSION, log } from "./config.ts";
-import { hosts } from "./hosts.ts";
+import { drop, hosts } from "./hosts.ts";
 import { handlePlayer } from "./player.ts";
 import { serveStatus } from "./stats.ts";
 import { handleTunnel } from "./tunnel.ts";
@@ -32,16 +33,20 @@ addresses.load();
 addresses.checkWritable();
 const relay = net.createServer(accept).listen(PORT, () => {
   log(`Vibey relay ${VERSION} on :${PORT}, addresses *.${DOMAIN}${ALLOW_OFFLINE ? " (offline mode!)" : ""}`);
+  if (!backendEnabled) log(`no backend, up to ${settings.maxHostsPerAccount} hosts per account`);
 });
+const stopBackend = startBackend();
 const statusServer = HTTP_PORT ? serveStatus(HTTP_PORT) : null;
 setInterval(dropSilentHosts, 15_000).unref();
 
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
-  process.once(signal, () => {
+  process.once(signal, async () => {
     log(`${signal}, shutting down`);
     addresses.flush();
     relay.close();
     statusServer?.close();
+    for (const h of [...hosts()]) drop(h);
+    await stopBackend();
     process.exit(0);
   });
 }

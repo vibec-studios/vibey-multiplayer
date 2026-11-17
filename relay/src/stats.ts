@@ -10,7 +10,7 @@ export const totals = { joins: 0, pings: 0, blocked: 0 };
 /** Public numbers for the status page: no names, addresses or IPs. */
 export function status() {
   const worlds = [...hosts()]
-    .map((h) => ({ players: h.players.size, since: new Date(h.since).toISOString(), mc: h.mc }))
+    .map((h) => ({ players: h.players.size, since: new Date(h.since).toISOString(), mc: h.mc, kind: h.kind }))
     .sort((a, b) => b.players - a.players);
   return {
     ok: true,

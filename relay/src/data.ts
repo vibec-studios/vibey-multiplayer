@@ -1,5 +1,7 @@
 import type * as net from "node:net";
 import { type Pending, claim } from "./hosts.ts";
+import { addressOf } from "./addresses.ts";
+import { emit } from "./events.ts";
 import type { Msg, RawHandler } from "./lines.ts";
 import { totals } from "./stats.ts";
 
@@ -17,7 +19,9 @@ function splice(p: Pending, data: net.Socket, rest: Buffer) {
     if (closed) return;
     closed = true;
     host.live.delete(player);
-    host.players.delete(player);
+    if (host.players.delete(player) && p.login) {
+      emit({ type: "player_leave", uuid: host.uuid, slot: host.slot, address: addressOf(host.label), player: p.login, ip: p.ip });
+    }
     host.streams--;
     player.destroy();
     data.destroy();
@@ -32,6 +36,7 @@ function splice(p: Pending, data: net.Socket, rest: Buffer) {
   if (p.login) {
     totals.joins++;
     host.players.set(player, { name: p.login.name, uuid: p.login.uuid, ip: p.ip, since: Date.now() });
+    emit({ type: "player_join", uuid: host.uuid, slot: host.slot, address: addressOf(host.label), player: p.login, ip: p.ip });
   }
   if (rest.length) player.write(rest);
   data.write(p.head);

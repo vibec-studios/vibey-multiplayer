@@ -9,6 +9,12 @@ services:
       DOMAIN: vibey.henny.dev   # wildcard DNS (DNS only, no proxy): *.vibey.henny.dev -> this server
       PORT: "25565"
       HTTP_PORT: "8765"
+      MAX_HOSTS_PER_ACCOUNT: "2"   # without backend / backend down in fail-open mode
+      # Optional Vibe Backend (put the secret in a .env file next to this one, never in git):
+      BACKEND_URL: ${BACKEND_URL:-}          # e.g. https://vibe.henny.dev
+      BACKEND_SECRET: ${BACKEND_SECRET:-}
+      BACKEND_FAIL_MODE: ${BACKEND_FAIL_MODE:-open}
+      RELAY_ID: ${RELAY_ID:-}             # defaults to DOMAIN
     volumes:
       - addresses:/data
 volumes:
