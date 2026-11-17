@@ -1,8 +1,9 @@
 FROM node:24-alpine
 WORKDIR /app
-COPY package.json server.ts ./
+COPY package.json ./
+COPY src ./src
 ENV PORT=25565 DATA_DIR=/data
 VOLUME /data
 EXPOSE 25565
 USER node
-CMD ["node", "server.ts"]
+CMD ["node", "src/main.ts"]

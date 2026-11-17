@@ -76,30 +76,21 @@ Fabric needs [Fabric API](https://modrinth.com/mod/fabric-api). The mod only run
 
 ## Running the relay
 
-The relay is one file without dependencies: [`relay/server.ts`](relay/server.ts) (Node 23.6+ or Bun).
+The relay has no runtime dependencies (Node 23.6+ or Bun). Code, environment variables and the protocol are
+described in [`relay/README.md`](relay/README.md).
 
 1. Point a wildcard DNS record at your server: `*.vibey.henny.dev  A  <server IP>`.
 2. Start it:
    ```bash
    cd relay
-   DOMAIN=vibey.henny.dev node server.ts
+   DOMAIN=vibey.henny.dev npm start
    # or: docker compose up -d   (edit DOMAIN in docker-compose.yml)
    ```
 3. The mod connects to `relay.vibey.henny.dev:25565` by default (`default_relay` in
    [`gradle.properties`](gradle.properties)). That name is covered by the wildcard record, and `relay` can never be
    handed out as an address. Players can point to another relay under *Advanced → Relay server*.
 
-| Variable | Default | |
-|---|---|---|
-| `PORT` | `25565` | Port for players **and** hosts |
-| `DOMAIN` | `vibey.henny.dev` | Wildcard domain of the addresses |
-| `PUBLIC_PORT` | `PORT` | Port shown in addresses (if not 25565) |
-| `DATA_DIR` | `./data` | Where address ownership is stored (`addresses.json`) |
-| `HTTP_PORT` | off | `/health` and `/status` (public numbers, no names or addresses) |
-| `MAX_STREAMS` | `64` | Connections per host |
-| `ALLOW_OFFLINE` | off | `1` skips the Mojang check (local testing only!) |
-
-`node relay/selftest.ts` runs an end-to-end test with a fake host and fake players.
+`npm test` in `relay/` runs an end-to-end test with a fake host and fake players.
 
 ### Live setup (Vibe Craft Studios)
 
@@ -121,7 +112,7 @@ Requires JDK 21 and JDK 25 (Minecraft 26.x). Multi-version builds use
 [Stonecutter](https://stonecutter.kikugie.dev/): one source tree, version-specific lines are marked with
 `//? if >=1.21.9` comments. Everything that differs between versions sits in `Compat.java`, `client/ui/Gfx.java`,
 `client/ui/BaseScreen.java` and the two loader entry points. `./gradlew :fabric-1.21.11:runClientGameTest` starts the
-real game, hosts a world through a local relay (`ALLOW_OFFLINE=1 HTTP_PORT=26401 PORT=26400 node relay/server.ts`)
+real game, hosts a world through a local relay (`ALLOW_OFFLINE=1 HTTP_PORT=26401 PORT=26400 node relay/src/main.ts`)
 and takes the screenshots above.
 
 ## Settings file

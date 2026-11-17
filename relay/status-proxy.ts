@@ -1,10 +1,4 @@
-// Small HTTPS-side companion of the relay for the status page on the website.
-//
-// The relay needs a public IP for raw TCP (Minecraft cannot go through Cloudflare's proxy), so it runs on its own
-// server. This proxy runs behind the normal web stack (Traefik + Cloudflare TLS), asks the relay for its numbers
-// every few seconds and serves them with CORS, so the website can read them over HTTPS.
-//
-// Environment: PORT (8080), UPSTREAM (http://relay-host:8765/status)
+// Serves the relay /status over HTTPS (behind Traefik + Cloudflare) for the website. Env: PORT, UPSTREAM.
 
 import * as http from "node:http";
 

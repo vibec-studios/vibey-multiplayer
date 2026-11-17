@@ -21,7 +21,7 @@ import java.util.function.Function;
 import java.util.function.Supplier;
 
 /**
- * Connection to the relay (see relay/server.ts for the protocol).
+ * Connection to the relay (protocol: relay/README.md).
  *
  * <p>One control connection says "I am online" and receives knocks. For every player that knocks, a second
  * connection to the relay is opened and glued to the local LAN port of the integrated server. Nothing else on this

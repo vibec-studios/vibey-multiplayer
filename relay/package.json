@@ -1,13 +1,21 @@
 {
   "name": "vibey-relay",
-  "version": "1.0.0",
+  "version": "1.2.0",
   "private": true,
   "type": "module",
   "description": "Tunnel relay for Vibey Multiplayer: fixed addresses for worlds hosted in a Minecraft client.",
   "license": "MIT",
   "scripts": {
-    "start": "node server.ts",
-    "test": "node selftest.ts"
+    "start": "node src/main.ts",
+    "status-proxy": "node status-proxy.ts",
+    "test": "node test/selftest.ts",
+    "check": "tsc"
   },
-  "engines": { "node": ">=23.6" }
+  "engines": {
+    "node": ">=23.6"
+  },
+  "devDependencies": {
+    "@types/node": "^24.19.2",
+    "typescript": "^5.9.3"
+  }
 }
