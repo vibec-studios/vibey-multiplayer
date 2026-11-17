@@ -1,18 +1,30 @@
 import * as crypto from "node:crypto";
 import type * as net from "node:net";
 import type { Access } from "./access.ts";
-import { owner } from "./addresses.ts";
-import { DATA_CONNECT_TIMEOUT_MS } from "./config.ts";
+import { addressOf, owner } from "./addresses.ts";
+import { DATA_CONNECT_TIMEOUT_MS, log } from "./config.ts";
+import { emit } from "./events.ts";
 import { send } from "./lines.ts";
 import { OFFLINE, refuse } from "./reply.ts";
 import type { Login } from "./wire.ts";
 
 export type Player = { name: string; uuid: string; ip: string; since: number };
 
+export type Kind = "world" | "server";
+export type Client = "mod" | "launcher";
+
 export type Host = {
   sock: net.Socket;
   uuid: string;
   name: string;
+  /** 0 = the classic address of the account; other slots have their own stable addresses. */
+  slot: number;
+  kind: Kind;
+  client: Client;
+  /** Version of the mod or launcher, as sent in hello. */
+  version: string;
+  /** Joined players at most, null = no limit. */
+  maxPlayers: number | null;
   label: string;
   ip: string;
   mc: string;
@@ -24,6 +36,7 @@ export type Host = {
   streams: number;
   live: Set<net.Socket>;
   players: Map<net.Socket, Player>;
+  gone?: boolean;
 };
 
 export type Pending = {
@@ -38,33 +51,62 @@ export type Pending = {
   gone: () => void;
 };
 
-const byUuid = new Map<string, Host>();
+const byKey = new Map<string, Host>();
 const pending = new Map<number, Pending>();
 let nextSid = 1;
 
+const keyOf = (uuid: string, slot: number) => `${uuid}/${slot}`;
+
 export function hosts(): IterableIterator<Host> {
-  return byUuid.values();
+  return byKey.values();
+}
+
+/** Online hosts of one account, optionally without the one on `exceptSlot` (it would be replaced). */
+export function hostsOf(uuid: string, exceptSlot?: number): Host[] {
+  return [...byKey.values()].filter((h) => h.uuid === uuid && h.slot !== exceptSlot);
 }
 
 export function lookup(label: string | null): { uuid?: string; host?: Host } {
-  const uuid = label ? owner(label) : undefined;
-  return { uuid, host: uuid ? byUuid.get(uuid) : undefined };
+  const o = label ? owner(label) : undefined;
+  return { uuid: o?.uuid, host: o ? byKey.get(keyOf(o.uuid, o.slot)) : undefined };
 }
 
+/** Puts a host online; an older session of the same (account, slot) gets `replaced`. */
 export function register(h: Host) {
-  const prev = byUuid.get(h.uuid);
+  const prev = byKey.get(keyOf(h.uuid, h.slot));
   if (prev) {
     send(prev.sock, { t: "replaced" });
     prev.sock.end();
     drop(prev);
   }
-  byUuid.set(h.uuid, h);
+  byKey.set(keyOf(h.uuid, h.slot), h);
+  emit({ type: "host_online", uuid: h.uuid, slot: h.slot, address: addressOf(h.label), ip: h.ip });
 }
 
+/** Takes a host offline (idempotent): waiting players get the offline answer, live ones are cut. */
 export function drop(h: Host) {
-  if (byUuid.get(h.uuid) === h) byUuid.delete(h.uuid);
+  if (h.gone) return;
+  h.gone = true;
+  if (byKey.get(keyOf(h.uuid, h.slot)) === h) byKey.delete(keyOf(h.uuid, h.slot));
   for (const p of pending.values()) if (p.host === h) unpark(p, true);
   for (const s of h.live) s.destroy();
+  log(`host offline ${h.name}#${h.slot}`);
+  emit({ type: "host_offline", uuid: h.uuid, slot: h.slot, address: addressOf(h.label), ip: h.ip });
+}
+
+/** Sends the host an error (the mod shows it and stops retrying) and disconnects it. */
+export function kick(h: Host, code: string, msg: string) {
+  send(h.sock, { t: "error", code, msg });
+  h.sock.end();
+  setTimeout(() => h.sock.destroy(), 2_000).unref();
+  drop(h);
+}
+
+/** Joined plus joining players, for maxPlayers. */
+export function joinCount(h: Host): number {
+  let n = h.players.size;
+  for (const p of pending.values()) if (p.host === h && p.login) n++;
+  return n;
 }
 
 /** Holds a player connection until the host opens the matching data connection. */

@@ -5,23 +5,56 @@ import { DATA_DIR, DOMAIN, PUBLIC_PORT, log } from "./config.ts";
 import { ADJECTIVES, NOUNS } from "./words.ts";
 
 const file = path.join(DATA_DIR, "addresses.json");
+export const FORMAT = 2;
+
+/** Who owns an address: the account and which of its hosts (slot 0 = the classic one-world-per-account address). */
+export type Owner = { uuid: string; slot: number };
+
+/** Key `uuid` for slot 0, `uuid/slot` for the others. */
 const labelOf = new Map<string, string>();
-const ownerOf = new Map<string, string>();
+const ownerOf = new Map<string, Owner>();
 let saveTimer: NodeJS.Timeout | null = null;
 
+const keyOf = (uuid: string, slot: number) => (slot === 0 ? uuid : `${uuid}/${slot}`);
+
+/**
+ * Format 1: `{ "owners": { uuid: label } }`.
+ * Format 2: `{ "version": 2, "owners": { uuid: label }, "slots": { uuid: { "1": label, … } } }`. `owners` stays the
+ * slot-0 table, so an older relay that reads a format-2 file still finds every classic address.
+ */
 export function load() {
   labelOf.clear();
   ownerOf.clear();
-  let owners: Record<string, string> = {};
+  let raw: any = null;
   try {
-    const raw = JSON.parse(fs.readFileSync(file, "utf8"));
-    if (raw && typeof raw.owners === "object") owners = raw.owners;
+    raw = JSON.parse(fs.readFileSync(file, "utf8"));
   } catch (e) {
     if ((e as NodeJS.ErrnoException).code !== "ENOENT") log("could not read", file, (e as Error).message);
   }
-  for (const [uuid, label] of Object.entries(owners)) {
-    labelOf.set(uuid, label);
-    ownerOf.set(label, uuid);
+  if (!raw || typeof raw !== "object") return;
+  const put = (uuid: string, slot: number, label: unknown) => {
+    if (typeof label !== "string" || !label || ownerOf.has(label)) return;
+    labelOf.set(keyOf(uuid, slot), label);
+    ownerOf.set(label, { uuid, slot });
+  };
+  if (raw.owners && typeof raw.owners === "object") for (const [uuid, label] of Object.entries(raw.owners)) put(uuid, 0, label);
+  if (raw.slots && typeof raw.slots === "object") {
+    for (const [uuid, slots] of Object.entries(raw.slots)) {
+      if (!slots || typeof slots !== "object") continue;
+      for (const [slot, label] of Object.entries(slots as Record<string, unknown>)) {
+        const n = Number(slot);
+        if (Number.isInteger(n) && n > 0) put(uuid, n, label);
+      }
+    }
+  }
+  if (raw.version !== FORMAT) {
+    try {
+      fs.copyFileSync(file, path.join(DATA_DIR, `addresses.v${Number(raw.version) || 1}.json`));
+    } catch (e) {
+      log("could not back up", file, (e as Error).message);
+    }
+    log(`addresses.json: upgrading format ${Number(raw.version) || 1} -> ${FORMAT} (${ownerOf.size} addresses)`);
+    save();
   }
 }
 
@@ -29,10 +62,16 @@ export function flush() {
   if (!saveTimer) return;
   clearTimeout(saveTimer);
   saveTimer = null;
+  const owners: Record<string, string> = {};
+  const slots: Record<string, Record<string, string>> = {};
+  for (const [label, { uuid, slot }] of ownerOf) {
+    if (slot === 0) owners[uuid] = label;
+    else (slots[uuid] ??= {})[slot] = label;
+  }
   try {
     fs.mkdirSync(DATA_DIR, { recursive: true });
     const tmp = file + ".tmp";
-    fs.writeFileSync(tmp, JSON.stringify({ owners: Object.fromEntries(labelOf) }, null, 1));
+    fs.writeFileSync(tmp, JSON.stringify({ version: FORMAT, owners, slots }, null, 1));
     fs.renameSync(tmp, file);
   } catch (e) {
     log("could not save", file, (e as Error).message);
@@ -52,7 +91,7 @@ function save() {
   saveTimer ??= setTimeout(flush, 200);
 }
 
-export function owner(label: string): string | undefined {
+export function owner(label: string): Owner | undefined {
   return ownerOf.get(label);
 }
 
@@ -60,13 +99,15 @@ export function count(): number {
   return ownerOf.size;
 }
 
-export function labelFor(uuid: string, renew = false): string {
-  const old = labelOf.get(uuid);
+/** The stable address label of (account, slot); `renew` hands out a new one (rotate). */
+export function labelFor(uuid: string, slot = 0, renew = false): string {
+  const key = keyOf(uuid, slot);
+  const old = labelOf.get(key);
   if (old && !renew) return old;
   if (old) ownerOf.delete(old);
   const label = freshLabel();
-  labelOf.set(uuid, label);
-  ownerOf.set(label, uuid);
+  labelOf.set(key, label);
+  ownerOf.set(label, { uuid, slot });
   save();
   return label;
 }

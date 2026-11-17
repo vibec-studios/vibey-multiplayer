@@ -1,10 +1,11 @@
 import type * as net from "node:net";
 import { blockReason } from "./access.ts";
-import { labelFromHost } from "./addresses.ts";
+import { addressOf, labelFromHost } from "./addresses.ts";
 import { FIRST_BYTES_TIMEOUT_MS, MAX_PLAYER_PREFIX, MAX_STREAMS } from "./config.ts";
-import { type Host, lookup, park } from "./hosts.ts";
+import { emit } from "./events.ts";
+import { type Host, joinCount, lookup, park } from "./hosts.ts";
 import { send } from "./lines.ts";
-import { BUSY, OFFLINE, UNKNOWN, refuse } from "./reply.ts";
+import { BUSY, FULL, OFFLINE, UNKNOWN, refuse } from "./reply.ts";
 import { totals } from "./stats.ts";
 import { type Handshake, type Login, STATE_STATUS, parseHandshake, parseLoginStart } from "./wire.ts";
 
@@ -52,9 +53,13 @@ function route(sock: net.Socket, head: Buffer, ip: string, { hs, uuid, host, log
   const reason = blockReason(host.access, ip, login?.name ?? null);
   if (reason) {
     totals.blocked++;
-    if (login) send(host.sock, { t: "blocked", name: login.name, ip, reason });
+    if (login) {
+      send(host.sock, { t: "blocked", name: login.name, ip, reason });
+      emit({ type: "blocked", uuid: host.uuid, slot: host.slot, address: addressOf(host.label), player: login, ip });
+    }
     return refuse(sock, head, { title: host.access.messages[reason], sub: "" });
   }
+  if (login && host.maxPlayers !== null && joinCount(host) >= host.maxPlayers) return refuse(sock, head, FULL);
   if (host.streams >= MAX_STREAMS) return refuse(sock, head, BUSY);
 
   if (hs.next === STATE_STATUS) totals.pings++;
