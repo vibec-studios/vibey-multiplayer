@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "description": "Tunnel relay for Vibey Multiplayer: fixed addresses for worlds hosted in a Minecraft client.",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "scripts": {
     "start": "node src/main.ts",
     "status-proxy": "node status-proxy.ts",

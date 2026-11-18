@@ -38,6 +38,10 @@ npm run launcher-client -- --relay host:port --port <server port> --name <name> 
 
 ## Environment
 
+> **Official services:** the defaults `vibey.henny.dev` and `https://vibe.henny.dev` are the Vibe services, for
+> official builds only, see [SERVICES.md](https://github.com/vibec-studios/.github/blob/main/SERVICES.md). A relay of your own needs its own
+> `DOMAIN` and, if any, a backend you run yourself.
+
 | Variable | Default | |
 |---|---|---|
 | `PORT` | `25565` | Port for players **and** hosts |
@@ -209,3 +213,7 @@ Bans from `ban_uuid` live in memory; after a restart the backend's `authorize` a
 
 `owners` holds slot 0 and is the same table as in format 1, so a relay older than 1.3 still finds every classic
 address in a format-2 file. A format-1 file is upgraded on start; the original is kept as `addresses.v1.json`.
+
+## License
+
+Apache-2.0, like the whole repository: see [LICENSE](../LICENSE) and [NOTICE](../NOTICE).

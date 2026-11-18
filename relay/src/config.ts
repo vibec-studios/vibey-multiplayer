@@ -1,6 +1,8 @@
 const env = process.env;
 
 export const PORT = Number(env.PORT ?? 25565);
+// vibey.henny.dev and vibe.henny.dev are the official Vibe services: for official builds only, see SERVICES.md
+// (https://github.com/vibec-studios/.github/blob/main/SERVICES.md). A relay of your own needs its own DOMAIN.
 export const DOMAIN = (env.DOMAIN ?? "vibey.henny.dev").toLowerCase().replace(/^\.+|\.+$/g, "");
 export const PUBLIC_PORT = Number(env.PUBLIC_PORT ?? PORT);
 export const DATA_DIR = env.DATA_DIR ?? "data";
@@ -14,7 +16,8 @@ export const MAX_HOSTS_PER_ACCOUNT = intEnv("MAX_HOSTS_PER_ACCOUNT", 2);
 export const MAX_PLAYERS_PER_HOST = intEnv("MAX_PLAYERS_PER_HOST", 0);
 export const MAX_SLOT = 63;
 
-/** Optional Vibe Backend: authorizes hosts, receives events, sends commands. */
+/** Optional Vibe Backend: authorizes hosts, receives events, sends commands. The official one (vibe.henny.dev) serves
+ *  official builds only, see SERVICES.md; point a relay of your own at a backend you run yourself. */
 export const BACKEND_URL = (env.BACKEND_URL ?? "").replace(/\/+$/, "");
 export const BACKEND_SECRET = env.BACKEND_SECRET ?? "";
 export const BACKEND_FAIL_MODE: "open" | "closed" = env.BACKEND_FAIL_MODE === "closed" ? "closed" : "open";

@@ -9,7 +9,7 @@ send it to your friends. They join with a normal, unmodded Minecraft through *Mu
 
 ![Minecraft](https://img.shields.io/badge/Minecraft-1.21%E2%80%9326.3-green)
 ![Loader](https://img.shields.io/badge/Loader-Fabric%20%7C%20NeoForge-blue)
-![License](https://img.shields.io/badge/License-MIT-yellow)
+![License](https://img.shields.io/badge/License-Apache--2.0-blue)
 
 ## Features
 
@@ -122,4 +122,17 @@ relay, last address).
 
 ## License
 
-[MIT](LICENSE). Not an official Minecraft product. Not approved by or associated with Mojang or Microsoft.
+**Code:** [Apache License 2.0](LICENSE), the mod as well as the relay server in `relay/`. You may fork, change and
+share it. Releases published before 2026-11-18 stay under the MIT License they were released with.
+
+**Not** covered by the code license (applies to all repositories of Vibe Craft Studios,
+[LICENSING.md](https://github.com/vibec-studios/.github/blob/main/LICENSING.md)):
+
+- **Names and logos** ("Vibey", "Vibey Multiplayer", "Vibe Craft Studios", the seal): forks need their own name, mod
+  ID and logo – [TRADEMARKS.md](https://github.com/vibec-studios/.github/blob/main/TRADEMARKS.md).
+- **Artwork** (icons, screenshots): all rights reserved – [ASSETS-POLICY.md](https://github.com/vibec-studios/.github/blob/main/ASSETS-POLICY.md);
+  paths in [NOTICE](NOTICE).
+- **Vibe services** (relay `vibey.henny.dev`, backend `vibe.henny.dev`): official builds only –
+  [SERVICES.md](https://github.com/vibec-studios/.github/blob/main/SERVICES.md). Forks must use a relay they run themselves.
+
+Not an official Minecraft product. Not approved by or associated with Mojang or Microsoft.

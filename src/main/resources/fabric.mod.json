@@ -10,7 +10,7 @@
     "sources": "https://github.com/vibec-studios/vibey-multiplayer",
     "issues": "https://github.com/vibec-studios/vibey-multiplayer/issues"
   },
-  "license": "MIT",
+  "license": "Apache-2.0",
   "icon": "assets/vibey/icon.png",
   "environment": "client",
   "entrypoints": {

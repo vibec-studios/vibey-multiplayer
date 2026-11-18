@@ -6,6 +6,8 @@ services:
       - "25565:25565"   # Minecraft players and hosts
       - "8765:8765"     # /status and /health for the status proxy
     environment:
+      # vibey.henny.dev and vibe.henny.dev: official builds only, see SERVICES.md
+      # (https://github.com/vibec-studios/.github/blob/main/SERVICES.md). Use your own domain and backend.
       DOMAIN: vibey.henny.dev   # wildcard DNS (DNS only, no proxy): *.vibey.henny.dev -> this server
       PORT: "25565"
       HTTP_PORT: "8765"

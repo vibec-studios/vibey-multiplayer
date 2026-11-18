@@ -1,0 +1,14 @@
+Vibey Multiplayer
+Copyright 2026 Vibe Craft Studios
+
+The source code (the mod and the relay server in relay/) is licensed under the Apache License, Version 2.0
+(see LICENSE). Releases published before 2026-11-18 remain under the MIT License.
+
+Not covered by that license – see https://github.com/vibec-studios/.github/blob/main/LICENSING.md :
+  - our names and logos ("Vibey", "Vibey Multiplayer", "Vibe", "Vibe Craft Studios", the seal) – TRADEMARKS.md,
+  - artwork, models, textures, animations and sounds – ASSETS-POLICY.md, in this repository in particular:
+      assets/icon.svg, src/main/resources/assets/vibey/icon.png,
+      docs/screenshots/**
+  - access to the Vibe online services (vibe.henny.dev, vibey.henny.dev) – SERVICES.md.
+
+Forks must use their own name, their own artwork and their own relay and backend services.
