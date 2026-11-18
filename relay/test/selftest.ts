@@ -128,6 +128,11 @@ async function main() {
     const zero = await hostSession(PORT, mc.port, {}, UUID);
     assert(zero.ready.label === r2.label, "slot 0 keeps the classic address after slot 1 rotated");
 
+    const vc = await hostSession(PORT, mc.port, { client: "vibey-client" }, UUID);
+    assert(vc.ready.t === "ready" && vc.ready.label === r2.label, "the Vibey Client (client: vibey-client) hosts like the mod on slot 0");
+    const weird = await hostSession(PORT, mc.port, { client: "something-else" }, "22222222222222222222222222222222");
+    assert(weird.ready.t === "error" && weird.ready.code === "bad_hello", "an unknown client is refused");
+
     const bad = await hostSession(PORT, mc.port, { slot: 999 }, "11111111111111111111111111111111");
     assert(bad.ready.t === "error" && bad.ready.code === "bad_hello", "an invalid slot is refused");
 

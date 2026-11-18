@@ -29,7 +29,7 @@ export const BACKEND_COMMANDS_MS = intEnv("BACKEND_COMMANDS_MS", 5_000);
 export const BACKEND_HEARTBEAT_MS = intEnv("BACKEND_HEARTBEAT_MS", 30_000);
 export const BACKEND_EVENT_BUFFER = intEnv("BACKEND_EVENT_BUFFER", 10_000);
 
-export const VERSION = "1.3.0";
+export const VERSION = "1.3.1";
 export const PROTOCOL = 1;
 export const MAGIC = Buffer.from([0x00, 0x56, 0x42, 0x59]);
 

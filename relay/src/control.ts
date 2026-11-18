@@ -20,7 +20,9 @@ export function startControl(sock: net.Socket, ip: string, hello: Msg): (msg: Ms
   // Optional since relay 1.3; a hello without them is exactly the old one-world-per-account hello.
   const slot = hello.slot == null ? 0 : Number(hello.slot);
   const kind = (hello.kind ?? "world") as Kind;
-  const client = (hello.client ?? "mod") as Client;
+  // The Vibey Client bundles the multiplayer mod and says "vibey-client"; it hosts like the mod (slot 0 world).
+  const rawClient = String(hello.client ?? "mod");
+  const client = (rawClient === "vibey-client" ? "mod" : rawClient) as Client;
   if (!Number.isInteger(slot) || slot < 0 || slot > MAX_SLOT) return fail(sock, "bad_hello", `Invalid slot (0-${MAX_SLOT}).`);
   if (!KINDS.includes(kind)) return fail(sock, "bad_hello", "Invalid kind.");
   if (!CLIENTS.includes(client)) return fail(sock, "bad_hello", "Invalid client.");
