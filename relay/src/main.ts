@@ -2,7 +2,9 @@ import * as net from "node:net";
 import { normalizeIp } from "./access.ts";
 import * as addresses from "./addresses.ts";
 import { enabled as backendEnabled, settings, startBackend } from "./backend.ts";
-import { ALLOW_OFFLINE, CONTROL_IDLE_MS, DOMAIN, FIRST_BYTES_TIMEOUT_MS, HTTP_PORT, MAGIC, PORT, VERSION, log } from "./config.ts";
+import {
+  ALLOW_OFFLINE, CONTROL_IDLE_MS, DOMAINS, FIRST_BYTES_TIMEOUT_MS, HTTP_PORT, MAGIC, PORT, RELAY_ID, VERSION, log,
+} from "./config.ts";
 import { drop, hosts } from "./hosts.ts";
 import { handlePlayer } from "./player.ts";
 import { serveStatus } from "./stats.ts";
@@ -32,7 +34,9 @@ function dropSilentHosts() {
 addresses.load();
 addresses.checkWritable();
 const relay = net.createServer(accept).listen(PORT, () => {
-  log(`Vibey relay ${VERSION} on :${PORT}, addresses *.${DOMAIN}${ALLOW_OFFLINE ? " (offline mode!)" : ""}`);
+  const also = DOMAINS.length > 1 ? `, also accepted: ${DOMAINS.slice(1).map((d) => "*." + d).join(", ")}` : "";
+  log(`Vibey relay ${VERSION} on :${PORT}, addresses *.${DOMAINS[0]}${also}${ALLOW_OFFLINE ? " (offline mode!)" : ""}`);
+  log(`relay id ${RELAY_ID}`);
   if (!backendEnabled) log(`no backend, up to ${settings.maxHostsPerAccount} hosts per account`);
 });
 const stopBackend = startBackend();

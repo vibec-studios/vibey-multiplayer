@@ -13,7 +13,7 @@ send it to your friends. They join with a normal, unmodded Minecraft through *Mu
 
 ## Features
 
-- **Your own address.** Every player gets one address like `mossy-otter-27.vibey.henny.dev`. It stays the same
+- **Your own address.** Every player gets one address like `mossy-otter-27.axolite.cc`. It stays the same
   every time you host, in every world, until you decide to **renew** it (the old one stops working right away).
 - **Host World** button in the pause menu, in place of *Open to LAN*. The window shows only your address, whether you
   are online and one button to start or stop.
@@ -68,7 +68,8 @@ Fabric needs [Fabric API](https://modrinth.com/mod/fabric-api). The mod only run
 - Your world is published like *Open to LAN*; Vibey connects that port to the relay. Nothing else on your
   computer is reachable.
 - The relay proves who you are with the same Mojang session check servers use, so nobody can take your address.
-- Addresses come from wildcard DNS (`*.vibey.henny.dev`) pointing at the relay, so friends never type a port.
+- Addresses come from wildcard DNS (`*.axolite.cc`) pointing at the relay, so friends never type a port. Addresses
+  handed out before the domain move keep working: `mossy-otter-27.vibey.henny.dev` is the same address.
 - When you are offline, your address still answers in the server list: *"This world is offline"*.
 - Whitelist and ban list travel to the relay. It reads the player name from the Minecraft *Login Start* packet and
   turns blocked players away with your message before opening a connection to you. Names cannot be faked: in online
@@ -79,16 +80,18 @@ Fabric needs [Fabric API](https://modrinth.com/mod/fabric-api). The mod only run
 The relay has no runtime dependencies (Node 23.6+ or Bun). Code, environment variables and the protocol are
 described in [`relay/README.md`](relay/README.md).
 
-1. Point a wildcard DNS record at your server: `*.vibey.henny.dev  A  <server IP>`.
+1. Point a wildcard DNS record at your server: `*.play.example.com  A  <server IP>` (one per domain if you use
+   several).
 2. Start it:
    ```bash
    cd relay
-   DOMAIN=vibey.henny.dev npm start
-   # or: docker compose up -d   (edit DOMAIN in docker-compose.yml)
+   DOMAINS=play.example.com npm start      # several: DOMAINS=new.example.com,old.example.com (first = primary)
+   # or: docker compose up -d   (edit DOMAINS in docker-compose.yml)
    ```
 3. The mod connects to `relay.vibey.henny.dev:25565` by default (`default_relay` in
-   [`gradle.properties`](gradle.properties)). That name is covered by the wildcard record, and `relay` can never be
-   handed out as an address. Players can point to another relay under *Advanced → Relay server*.
+   [`gradle.properties`](gradle.properties)); the official relay is also `relay.axolite.cc`, the same server. Both
+   names are covered by the wildcard records, and `relay` (like `www`, `api`, `status`) can never be handed out as an
+   address. Players can point to another relay under *Advanced → Relay server*.
 
 `npm test` in `relay/` runs an end-to-end test with a fake host and fake players.
 
@@ -97,9 +100,11 @@ described in [`relay/README.md`](relay/README.md).
 - **Relay:** Dokploy project *Vibey Multiplayer*, compose *Relay* on the Hetzner server (public IP, TCP 25565, status
   on 8765), built from `relay/docker-compose.yml` of this repo.
 - **Status API:** app *Status* on the home server behind Traefik + Cloudflare:
-  `https://vibey-status.henny.dev/status` ([`relay/status-proxy.ts`](relay/status-proxy.ts)). It exists because the
-  relay itself cannot sit behind Cloudflare (raw TCP).
-- **DNS:** `*.vibey.henny.dev` must be a **DNS-only** record (no Cloudflare proxy) pointing at the relay server.
+  `https://status.axolite.app/status` (formerly `vibey-status.henny.dev`, [`relay/status-proxy.ts`](relay/status-proxy.ts)).
+  It exists because the relay itself cannot sit behind Cloudflare (raw TCP).
+- **DNS:** `*.axolite.cc` and `*.vibey.henny.dev` must be **DNS-only** records (no Cloudflare proxy) pointing at the
+  relay server. The relay runs with `DOMAINS=axolite.cc,vibey.henny.dev`: new addresses use `axolite.cc`, old ones keep
+  working under both domains.
 
 ## Building
 
@@ -132,7 +137,7 @@ share it. Releases published before 2026-11-18 stay under the MIT License they w
   ID and logo – [TRADEMARKS.md](https://github.com/vibec-studios/.github/blob/main/TRADEMARKS.md).
 - **Artwork** (icons, screenshots): all rights reserved – [ASSETS-POLICY.md](https://github.com/vibec-studios/.github/blob/main/ASSETS-POLICY.md);
   paths in [NOTICE](NOTICE).
-- **Vibe services** (relay `vibey.henny.dev`, backend `vibe.henny.dev`): official builds only –
+- **Vibe services** (relay `axolite.cc` / `vibey.henny.dev`, backend `vibe.axolite.app` / `vibe.henny.dev`): official builds only –
   [SERVICES.md](https://github.com/vibec-studios/.github/blob/main/SERVICES.md). Forks must use a relay they run themselves.
 
 Not an official Minecraft product. Not approved by or associated with Mojang or Microsoft.

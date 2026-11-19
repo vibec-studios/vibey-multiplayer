@@ -3,7 +3,7 @@
 import * as http from "node:http";
 import type * as net from "node:net";
 import { startLauncherClient } from "./launcher-client.ts";
-import { UUID, assert, closed, echoServer, freePort, hostSession, join, line, sleep, startRelay } from "./util.ts";
+import { DOMAIN, UUID, assert, closed, echoServer, freePort, hostSession, join, line, sleep, startRelay } from "./util.ts";
 
 const SECRET = "test-secret";
 const BANNED = "22222222222222222222222222222222";
@@ -17,6 +17,7 @@ type Fake = {
   acks: any[];
   heartbeats: any[];
   badAuth: number;
+  relayIds: Set<string>;
   commands: any[];
   failEvents: number;
   failAuthorize: boolean;
@@ -27,7 +28,7 @@ type Fake = {
 
 async function fakeBackend(): Promise<Fake> {
   const f: Fake = {
-    url: "", authorize: [], events: [], acks: [], heartbeats: [], badAuth: 0, commands: [], failEvents: 0,
+    url: "", authorize: [], events: [], acks: [], heartbeats: [], badAuth: 0, relayIds: new Set(), commands: [], failEvents: 0,
     failAuthorize: false, decide: () => ({ allow: true, maxHosts: 2, maxPlayers: null, ttl: 0 }), heartbeatConfig: null,
     close: () => server.close(),
   };
@@ -40,6 +41,7 @@ async function fakeBackend(): Promise<Fake> {
       res.setHeader("content-type", "application/json");
       res.end(data === undefined ? "" : JSON.stringify(data));
     };
+    f.relayIds.add(String(req.headers["x-relay-id"]));
     if (req.headers.authorization !== `Bearer ${SECRET}`) {
       f.badAuth++;
       return reply(401, { error: "unauthorized" });
@@ -85,7 +87,8 @@ const fast = { BACKEND_EVENTS_MS: "150", BACKEND_COMMANDS_MS: "150", BACKEND_HEA
 async function main() {
   const fake = await fakeBackend();
   const mc = await echoServer();
-  const relay = await startRelay({ BACKEND_URL: fake.url + "/", BACKEND_SECRET: SECRET, ...fast });
+  // Like the official relay: a new primary domain next to vibey.henny.dev, no explicit RELAY_ID.
+  const relay = await startRelay({ BACKEND_URL: fake.url + "/", BACKEND_SECRET: SECRET, DOMAINS: `${DOMAIN},vibey.henny.dev`, ...fast });
   const PORT = relay.port;
   const relays = [relay];
 
@@ -98,6 +101,8 @@ async function main() {
     assert(a && a.uuid === UUID && a.name === "Tester" && a.ip === "127.0.0.1" && a.client === "mod" && a.kind === "world"
       && a.slot === 0 && a.mc === "test" && a.version === "1.0.0" && a.active === 0, "authorize gets the documented fields");
     assert(fake.badAuth === 0, "every backend call carries the bearer secret");
+    assert(fake.relayIds.size === 1 && fake.relayIds.has("vibey.henny.dev"),
+      "X-Relay-Id stays vibey.henny.dev with a new primary domain: " + [...fake.relayIds].join(","));
 
     const second = await hostSession(PORT, mc.port, { slot: 1, kind: "server", client: "launcher" });
     assert(second.ready.t === "error" && second.ready.code === "limit", "maxHosts from the backend is enforced");
@@ -139,6 +144,8 @@ async function main() {
     const ev = (type: string) => fake.events.filter((e) => e.type === type && e.uuid === UUID);
     const on = ev("host_online").at(-1);
     assert(on && on.slot === 0 && on.address === replaced.ready.address && !Number.isNaN(Date.parse(on.at)), "host_online event");
+    assert(fake.events.every((e) => !e.address || e.address.startsWith(e.address.split(".")[0] + "." + DOMAIN)),
+      "event addresses use the primary domain");
     assert(ev("host_offline").length >= 1, "host_offline event for the replaced session");
     const pj = ev("player_join");
     assert(pj.length === 2 && pj[0].player.name === "Alex" && pj[0].ip === "127.0.0.1" && pj[0].player.uuid.length === 32,

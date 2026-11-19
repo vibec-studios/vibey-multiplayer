@@ -48,7 +48,7 @@ export async function startRelay(env: Record<string, string> = {}, dataDir?: str
   const dir = dataDir ?? fs.mkdtempSync(path.join(os.tmpdir(), "vibey-relay-"));
   const proc = spawn(process.execPath, [path.join(here, "..", "src", "main.ts")], {
     env: {
-      ...process.env, PORT: String(port), DOMAIN, DATA_DIR: dir, ALLOW_OFFLINE: "1", HTTP_PORT: String(httpPort), ...env,
+      ...process.env, DOMAINS: "", RELAY_ID: "", PORT: String(port), DOMAIN, DATA_DIR: dir, ALLOW_OFFLINE: "1", HTTP_PORT: String(httpPort), ...env,
     },
     stdio: ["ignore", "inherit", "inherit"],
   });
@@ -188,9 +188,9 @@ export async function hostSession(port: number, mcPort: number, extra: object = 
 }
 
 /** Joins `label` as `name`; resolves to what came back first ("MC:" echo or a disconnect text). */
-export async function join(port: number, label: string, name: string): Promise<{ sock: net.Socket; data: string }> {
+export async function join(port: number, label: string, name: string, domain = DOMAIN): Promise<{ sock: net.Socket; data: string }> {
   const p = await connect(port);
-  p.write(Buffer.concat([handshake(label + "." + DOMAIN, 2), loginStart(name)]));
+  p.write(Buffer.concat([handshake(label + "." + domain, 2), loginStart(name)]));
   const got = await collect(p, (b) => b.length > 0);
   return { sock: p, data: got.toString() };
 }

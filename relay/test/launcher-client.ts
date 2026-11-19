@@ -1,8 +1,9 @@
 // Reference relay client for a local dedicated server (what the Vibe Launcher does), see relay/README.md.
 //
-//   MC_ACCESS_TOKEN=… node test/launcher-client.ts --relay relay.vibey.henny.dev:25565 --port 25566 \
+//   MC_ACCESS_TOKEN=… node test/launcher-client.ts --relay relay.axolite.cc:25565 --port 25566 \
 //     --name Steve --uuid <uuid> --slot 1
 //
+// relay.axolite.cc is the host name of the official relay; relay.vibey.henny.dev (old builds) reaches the same server.
 // Without MC_ACCESS_TOKEN the Mojang join is skipped (only works against a relay with ALLOW_OFFLINE=1).
 
 import * as net from "node:net";
@@ -156,7 +157,7 @@ export function startLauncherClient(o: LauncherOptions): LauncherClient {
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const { values: v } = parseArgs({
     options: {
-      relay: { type: "string", default: "relay.vibey.henny.dev:25565" },
+      relay: { type: "string", default: "relay.axolite.cc:25565" },
       port: { type: "string", default: "25565" },
       name: { type: "string" },
       uuid: { type: "string" },

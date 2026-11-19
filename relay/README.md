@@ -1,8 +1,8 @@
 # Vibey Relay
 
 Tunnel for worlds hosted inside a normal Minecraft client, and for local dedicated servers started by the Vibe
-Launcher. Friends join with an unmodded Minecraft using a fixed address like `mossy-otter-27.vibey.henny.dev`; the
-relay reads the host name from the Minecraft handshake and hands the connection to the client that owns the address.
+Launcher. Friends join with an unmodded Minecraft using a fixed address like `mossy-otter-27.axolite.cc`; the relay
+reads the host name from the Minecraft handshake and hands the connection to the client that owns the address.
 No dependencies at runtime, Node 23.6+ or Bun.
 
 ```bash
@@ -33,19 +33,22 @@ npm run launcher-client -- --relay host:port --port <server port> --name <name> 
 | `src/stats.ts` | `/status` and `/health` |
 | `status-proxy.ts` | Separate app: serves `/status` over HTTPS for the website |
 | `test/selftest.ts` | End-to-end test without backend (addresses, access, slots, migration) |
+| `test/domains.ts` | Several domains, reserved names, `DOMAIN` fallback, stable `RELAY_ID` |
 | `test/backend.ts` | End-to-end test of the backend contract with a fake backend |
 | `test/launcher-client.ts` | Reference client for a local dedicated server (what the launcher does), also a CLI |
 
 ## Environment
 
-> **Official services:** the defaults `vibey.henny.dev` and `https://vibe.henny.dev` are the Vibe services, for
-> official builds only, see [SERVICES.md](https://github.com/vibec-studios/.github/blob/main/SERVICES.md). A relay of your own needs its own
-> `DOMAIN` and, if any, a backend you run yourself.
+> **Official services:** `axolite.cc`, the default `vibey.henny.dev` and `https://vibe.axolite.app` (formerly
+> `https://vibe.henny.dev`) are the Vibe services, for official builds only, see
+> [SERVICES.md](https://github.com/vibec-studios/.github/blob/main/SERVICES.md). A relay of your own needs its own
+> `DOMAINS` and, if any, a backend you run yourself.
 
 | Variable | Default | |
 |---|---|---|
 | `PORT` | `25565` | Port for players **and** hosts |
-| `DOMAIN` | `vibey.henny.dev` | Wildcard domain of the addresses |
+| `DOMAINS` | | Wildcard domains of the addresses, comma-separated, the **first is the primary**, e.g. `axolite.cc,vibey.henny.dev`. See [Domains](#domains) |
+| `DOMAIN` | `vibey.henny.dev` | One domain; only used when `DOMAINS` is not set (relays before 1.4) |
 | `PUBLIC_PORT` | `PORT` | Port shown in addresses (if not 25565) |
 | `DATA_DIR` | `./data` | Where address ownership is stored |
 | `HTTP_PORT` | off | `/health` and `/status` (public numbers, no names or addresses) |
@@ -56,10 +59,34 @@ npm run launcher-client -- --relay host:port --port <server port> --name <name> 
 | `BACKEND_URL` | off | Vibe Backend, e.g. `https://vibe.henny.dev`. Needs `BACKEND_SECRET` too |
 | `BACKEND_SECRET` | | Shared secret, sent as `Authorization: Bearer …` |
 | `BACKEND_FAIL_MODE` | `open` | Backend unreachable: `open` = allow with the local limits, `closed` = refuse new hosts |
-| `RELAY_ID` | `DOMAIN` | Sent as `X-Relay-Id` header so the backend can tell workers apart |
+| `RELAY_ID` | see [Domains](#domains) | Sent as `X-Relay-Id` header so the backend can tell workers apart |
 | `BACKEND_TIMEOUT_MS` | `5000` | Timeout of every backend request |
 | `BACKEND_EVENTS_MS` / `BACKEND_COMMANDS_MS` / `BACKEND_HEARTBEAT_MS` | `2000` / `5000` / `30000` | Intervals |
 | `BACKEND_EVENT_BUFFER` | `10000` | Events kept while the backend is down; the oldest are dropped beyond that |
+
+## Domains
+
+A relay can serve several wildcard domains at once (relay 1.4), for a domain move without breaking old addresses.
+The official relay runs with `DOMAINS=axolite.cc,vibey.henny.dev`; both `*.axolite.cc` and `*.vibey.henny.dev` are
+DNS-only A records pointing at it.
+
+- **Accepted:** the handshake host name may end in any configured domain. `mossy-otter-27.axolite.cc` and
+  `mossy-otter-27.vibey.henny.dev` are the same address (case, a trailing dot and the Forge `\0FML3\0` marker are
+  ignored; the longest matching domain wins). Other host names get "Unknown address".
+- **Reported:** everything the relay says uses the **primary** (first) domain: `ready.address` and `ready.domain` for
+  hosts, `address` in backend events, `domain` in `/status` (plus `domains`, the full list), the start-up log.
+  Nothing is stored per domain: `addresses.json` holds labels only, so a label moves to the new primary domain as is.
+- **Reserved names:** `relay`, `www`, `api`, `status` and a few more (`RESERVED` in `src/addresses.ts`) are never an
+  address on any domain: they are never handed out, ignored in `addresses.json`, and a player connecting to
+  `relay.axolite.cc` gets "Unknown address". Hosts use these names to reach the relay: the mod and the launcher
+  connect to `relay.axolite.cc:25565` (new builds) or `relay.vibey.henny.dev:25565` (old builds), the same server.
+  The relay does not look at the host name of control and data connections, only at the magic bytes.
+- **`RELAY_ID` stays stable:** the backend knows a relay by its `X-Relay-Id`. Before 1.4 it defaulted to `DOMAIN`,
+  i.e. `vibey.henny.dev` for the official relay. A new primary domain must not change it, so without an explicit
+  `RELAY_ID` it is **`vibey.henny.dev` whenever that domain is in the list** (also when it is not the primary), and
+  otherwise the primary domain as before. A relay of your own that changes its primary domain should set `RELAY_ID`
+  to its old domain.
+- **`DOMAIN`** still works as a single domain when `DOMAINS` is not set; when both are set, `DOMAINS` wins.
 
 ## Protocol
 
@@ -76,7 +103,7 @@ of traffic can share the port. After the magic: newline-delimited JSON (one obje
 | C → S | `{"t":"hello","v":1,"name":"…","uuid":"…","mc":"1.21.11","client":"launcher","kind":"server","slot":1,"version":"0.5.0"}` | Optional fields since relay 1.3, see below |
 | S → C | `{"t":"challenge","serverId":"<hex>"}` | Client calls Mojang `joinServer(serverId)` |
 | C → S | `{"t":"auth"}` | Relay checks Mojang `hasJoined`, then asks the backend (if configured) |
-| S → C | `{"t":"ready","address":"a-b-12.domain","label":"a-b-12","domain":"domain","port":25565,"slot":0}` | |
+| S → C | `{"t":"ready","address":"a-b-12.domain","label":"a-b-12","domain":"domain","port":25565,"slot":0}` | `domain` = the primary domain |
 | C → S | `{"t":"rotate"}` | New address for this slot, answered with `ready` (6 per hour) |
 | C → S | `{"t":"access","whitelist":["name"]\|null,"banNames":[…],"banIps":[…],"messages":{"banned":"…","whitelist":"…"}}` | Enforced by the relay before a byte reaches the host; may be sent any time, also before `auth` |
 | S → C | `{"t":"open","sid":7,"key":"<hex>","ip":"1.2.3.4","state":2,"name":"Steve","uuid":"…"}` | A player knocked; `name`/`uuid` only for joins (`state` 2), pings have `state` 1 |
@@ -116,7 +143,8 @@ mod), so old mod versions keep their address and behaviour.
 The launcher speaks exactly the same protocol as the mod. `test/launcher-client.ts` is a complete reference
 implementation (about 150 lines, no dependencies) and runs as a CLI. Steps:
 
-1. **Control connection:** TCP to the relay (default `relay.vibey.henny.dev:25565`), write `00 56 42 59`, then
+1. **Control connection:** TCP to the relay (`relay.axolite.cc:25565`; older builds use `relay.vibey.henny.dev:25565`,
+   the same server), write `00 56 42 59`, then
    `{"t":"hello","v":1,"name":<profile name>,"uuid":<profile uuid>,"mc":<server version>,"client":"launcher","kind":"server","slot":<n ≥ 1>,"version":<launcher version>}`
    and right after it the current `access` lists (whitelist/bans of that server, see below).
 2. **Mojang check:** on `challenge`, call Mojang `joinServer` with the signed-in account of the launcher, exactly
@@ -178,7 +206,7 @@ recovery is logged.
 
 ```json
 { "events": [
-  { "type": "host_online", "uuid": "…", "slot": 0, "address": "a-b-12.vibey.henny.dev", "at": "…", "ip": "1.2.3.4" },
+  { "type": "host_online", "uuid": "…", "slot": 0, "address": "a-b-12.axolite.cc", "at": "…", "ip": "1.2.3.4" },
   { "type": "player_join", "uuid": "…", "slot": 0, "address": "…", "at": "…",
     "player": { "name": "Alex", "uuid": "…" }, "ip": "5.6.7.8" }
 ] }
@@ -200,7 +228,7 @@ mode the server checks it; it can be empty for very old clients). Any 2xx counts
 
 Bans from `ban_uuid` live in memory; after a restart the backend's `authorize` answer is what counts.
 
-**`POST /heartbeat`** every 30 s (and at start) `{ "version": "1.3.0", "hosts": 3, "players": 7, "uptime": 3600 }` →
+**`POST /heartbeat`** every 30 s (and at start) `{ "version": "1.4.0", "hosts": 3, "players": 7, "uptime": 3600 }` →
 `{ "config": { … } }` (same keys as the `config` command, optional).
 
 ## Addresses file

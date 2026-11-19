@@ -1,7 +1,7 @@
 import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { DATA_DIR, DOMAIN, PUBLIC_PORT, log } from "./config.ts";
+import { DATA_DIR, DOMAIN, DOMAINS, PUBLIC_PORT, log } from "./config.ts";
 import { ADJECTIVES, NOUNS } from "./words.ts";
 
 const file = path.join(DATA_DIR, "addresses.json");
@@ -16,6 +16,21 @@ const ownerOf = new Map<string, Owner>();
 let saveTimer: NodeJS.Timeout | null = null;
 
 const keyOf = (uuid: string, slot: number) => (slot === 0 ? uuid : `${uuid}/${slot}`);
+
+/**
+ * Names under the relay domains that are never an address: `relay.<domain>` is where hosts connect, the others are
+ * kept free for services. Generated labels (adjective-noun-NN) cannot collide with them anyway; this also keeps a hand
+ * edited addresses.json from claiming one, and makes the handshake treat them as unknown addresses.
+ */
+export const RESERVED = new Set([
+  "relay", "www", "api", "status", "admin", "app", "vibe", "vibey", "play", "join", "j", "mail", "smtp", "imap", "mx",
+  "ns", "ns1", "ns2", "dns", "cdn", "static", "assets", "docs", "help", "support", "auth", "login", "id", "account",
+]);
+
+export const reserved = (label: string) => RESERVED.has(label.toLowerCase());
+
+/** Longest first, so a domain that is a suffix of another one never steals its host names. */
+const MATCH_DOMAINS = [...DOMAINS].sort((a, b) => b.length - a.length);
 
 /**
  * Format 1: `{ "owners": { uuid: label } }`.
@@ -34,6 +49,7 @@ export function load() {
   if (!raw || typeof raw !== "object") return;
   const put = (uuid: string, slot: number, label: unknown) => {
     if (typeof label !== "string" || !label || ownerOf.has(label)) return;
+    if (reserved(label)) return log(`addresses.json: ignoring reserved name ${label} (${uuid}#${slot} gets a new address)`);
     labelOf.set(keyOf(uuid, slot), label);
     ownerOf.set(label, { uuid, slot });
   };
@@ -117,19 +133,25 @@ function freshLabel(): string {
     const a = ADJECTIVES[crypto.randomInt(ADJECTIVES.length)];
     const n = NOUNS[crypto.randomInt(NOUNS.length)];
     const label = `${a}-${n}-${crypto.randomInt(10, 100)}`;
-    if (!ownerOf.has(label)) return label;
+    if (!ownerOf.has(label) && !reserved(label)) return label;
   }
   return crypto.randomBytes(6).toString("hex");
 }
 
+/** The address players type, always under the primary domain. */
 export function addressOf(label: string): string {
   return PUBLIC_PORT === 25565 ? `${label}.${DOMAIN}` : `${label}.${DOMAIN}:${PUBLIC_PORT}`;
 }
 
-/** `Mossy-Otter-27.vibey.henny.dev.\0FML3\0` → `mossy-otter-27`, null for foreign host names. */
+/**
+ * `Mossy-Otter-27.axolite.cc.\0FML3\0` → `mossy-otter-27`; every configured domain works, so
+ * `mossy-otter-27.vibey.henny.dev` is the same address. Null for foreign host names and reserved names.
+ */
 export function labelFromHost(host: string): string | null {
   const h = host.split("\0")[0].trim().toLowerCase().replace(/\.+$/, "");
-  if (!h.endsWith("." + DOMAIN)) return null;
-  const parts = h.slice(0, -(DOMAIN.length + 1)).split(".");
-  return parts[parts.length - 1] || null;
+  const domain = MATCH_DOMAINS.find((d) => h.endsWith("." + d));
+  if (!domain) return null;
+  const parts = h.slice(0, -(domain.length + 1)).split(".");
+  const label = parts[parts.length - 1];
+  return label && !reserved(label) ? label : null;
 }

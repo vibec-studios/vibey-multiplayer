@@ -1,13 +1,13 @@
 import * as http from "node:http";
 import { count } from "./addresses.ts";
-import { VERSION, log } from "./config.ts";
+import { DOMAIN, DOMAINS, VERSION, log } from "./config.ts";
 import { hosts } from "./hosts.ts";
 
 const started = Date.now();
 
 export const totals = { joins: 0, pings: 0, blocked: 0 };
 
-/** Public numbers for the status page: no names, addresses or IPs. */
+/** Public numbers for the status page: no names, addresses or IPs. `domain` is where new addresses live. */
 export function status() {
   const worlds = [...hosts()]
     .map((h) => ({ players: h.players.size, since: new Date(h.since).toISOString(), mc: h.mc, kind: h.kind }))
@@ -15,6 +15,8 @@ export function status() {
   return {
     ok: true,
     version: VERSION,
+    domain: DOMAIN,
+    domains: DOMAINS,
     time: new Date().toISOString(),
     uptime: Math.round((Date.now() - started) / 1000),
     worlds: worlds.length,

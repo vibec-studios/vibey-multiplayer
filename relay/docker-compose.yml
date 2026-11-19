@@ -6,17 +6,23 @@ services:
       - "25565:25565"   # Minecraft players and hosts
       - "8765:8765"     # /status and /health for the status proxy
     environment:
-      # vibey.henny.dev and vibe.henny.dev: official builds only, see SERVICES.md
+      # axolite.cc, vibey.henny.dev and vibe.axolite.app: official builds only, see SERVICES.md
       # (https://github.com/vibec-studios/.github/blob/main/SERVICES.md). Use your own domain and backend.
-      DOMAIN: vibey.henny.dev   # wildcard DNS (DNS only, no proxy): *.vibey.henny.dev -> this server
+      # Wildcard DNS, DNS-only A records (no Cloudflare proxy, raw TCP): *.axolite.cc and *.vibey.henny.dev -> this
+      # server. The first domain is the primary: new addresses are handed out as <name>.axolite.cc; every address also
+      # works as <name>.vibey.henny.dev (old builds, saved server lists). Hosts connect as relay.axolite.cc (new) or
+      # relay.vibey.henny.dev (old), the same IP and port; "relay" is never an address.
+      DOMAINS: axolite.cc,vibey.henny.dev
       PORT: "25565"
       HTTP_PORT: "8765"
       MAX_HOSTS_PER_ACCOUNT: "2"   # without backend / backend down in fail-open mode
       # Optional Vibe Backend (put the secret in a .env file next to this one, never in git):
-      BACKEND_URL: ${BACKEND_URL:-}          # e.g. https://vibe.henny.dev
+      BACKEND_URL: ${BACKEND_URL:-}          # e.g. https://vibe.axolite.app
       BACKEND_SECRET: ${BACKEND_SECRET:-}
       BACKEND_FAIL_MODE: ${BACKEND_FAIL_MODE:-open}
-      RELAY_ID: ${RELAY_ID:-}             # defaults to DOMAIN
+      # Empty = vibey.henny.dev: the id the backend has always known this relay by, kept although axolite.cc is the
+      # primary domain now (relay/README.md, "Domains"). Do not set it to axolite.cc.
+      RELAY_ID: ${RELAY_ID:-}
     volumes:
       - addresses:/data
 volumes:
