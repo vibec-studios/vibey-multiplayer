@@ -1,7 +1,7 @@
 # Vibey Relay
 
 Tunnel for worlds hosted inside a normal Minecraft client, and for local dedicated servers started by the Vibe
-Launcher. Friends join with an unmodded Minecraft using a fixed address like `mossy-otter-27.axolite.cc`; the relay
+Launcher or the Vibe Server Agent. Friends join with an unmodded Minecraft using a fixed address like `mossy-otter-27.axolite.cc`; the relay
 reads the host name from the Minecraft handshake and hands the connection to the client that owns the address.
 No dependencies at runtime, Node 23.6+ or Bun.
 
@@ -20,7 +20,7 @@ npm run launcher-client -- --relay host:port --port <server port> --name <name> 
 | `src/config.ts` | Environment and limits |
 | `src/player.ts` | Minecraft clients: handshake, Login Start, routing, network-level access checks, player limit |
 | `src/tunnel.ts` | Connections from the mod or launcher: control or data |
-| `src/control.ts` | Control connection: hello, Mojang check, authorization, address, rotation, access lists |
+| `src/control.ts` | Control connection: hello, Mojang check or agent ticket, authorization, address, rotation, access lists |
 | `src/data.ts` | Data connection: splices a player socket with the host |
 | `src/hosts.ts` | Online hosts (per account and slot) and players waiting for their data connection |
 | `src/addresses.ts` | Address ownership (`DATA_DIR/addresses.json`) |
@@ -30,11 +30,14 @@ npm run launcher-client -- --relay host:port --port <server port> --name <name> 
 | `src/reply.ts` | Answers for worlds that are offline, unknown, busy, full or blocked |
 | `src/wire.ts` | Minecraft packet reading and writing |
 | `src/mojang.ts` | `hasJoined` session check |
+| `src/agent-ticket.ts` | Vibe Server Agent: relay ticket checked at the backend instead of the Mojang session (1.7) |
 | `src/stats.ts` | `/status` and `/health` |
 | `status-proxy.ts` | Separate app: serves `/status` over HTTPS for the website |
 | `test/selftest.ts` | End-to-end test without backend (addresses, access, slots, migration) |
 | `test/domains.ts` | Several domains, reserved names, `DOMAIN` fallback, stable `RELAY_ID` |
 | `test/backend.ts` | End-to-end test of the backend contract with a fake backend |
+| `test/agent-ticket.ts` | Hosting with an agent ticket: accepted, expired, invalid, other account, backend down |
+| `test/fake-backend.ts` | The fake Vibe Backend shared by the backend tests |
 | `test/launcher-client.ts` | Reference client for a local dedicated server (what the launcher does), also a CLI |
 | `src/udp/`, `test/udp*.ts` | UDP for voice chat and Bedrock players (relay 1.5), see [UDP.md](UDP.md) |
 
@@ -107,6 +110,7 @@ of traffic can share the port. After the magic: newline-delimited JSON (one obje
 | C → S | `{"t":"hello","v":1,"name":"…","uuid":"…","mc":"1.21.11","client":"launcher","kind":"server","slot":1,"version":"0.5.0"}` | Optional fields since relay 1.3, see below |
 | S → C | `{"t":"challenge","serverId":"<hex>"}` | Client calls Mojang `joinServer(serverId)` |
 | C → S | `{"t":"auth"}` | Relay checks Mojang `hasJoined`, then asks the backend (if configured) |
+| C → S | `{"t":"auth","ticket":"<relay ticket>"}` | Since 1.7, Vibe Server Agent: the backend checks the ticket instead of Mojang, see below |
 | S → C | `{"t":"ready","address":"a-b-12.domain","label":"a-b-12","domain":"domain","port":25565,"slot":0}` | `domain` = the primary domain |
 | C → S | `{"t":"rotate"}` | New address for this slot, answered with `ready` (6 per hour) |
 | C → S | `{"t":"access","whitelist":["name"]\|null,"banNames":[…],"banIps":[…],"messages":{"banned":"…","whitelist":"…"}}` | Enforced by the relay before a byte reaches the host; may be sent any time, also before `auth` |
@@ -117,7 +121,7 @@ of traffic can share the port. After the magic: newline-delimited JSON (one obje
 | S → C | `{"t":"error","code":"…","msg":"…"}`, `{"t":"replaced"}` | Then the relay closes. `replaced`: the same account and slot is hosted somewhere else |
 
 Error codes: `version`, `bad_hello`, `auth_failed`, `limit`, `banned`, `disabled`, `unavailable` (backend down in
-fail-closed mode), `kicked` (by the backend), `rate_limited` (rotation only, the connection stays open). `msg` is
+fail-closed mode, or it could not check an agent ticket), `ticket_expired`, `ticket_invalid` (agent tickets, 1.7), `kicked` (by the backend), `rate_limited` (rotation only, the connection stays open). `msg` is
 meant for the user. Except for `rate_limited`, a client should show `msg` and **not** reconnect on its own.
 
 **Data connection** (one per player): `{"t":"data","sid":7,"key":"<hex>"}\n`, then raw bytes in both directions. The
@@ -133,7 +137,7 @@ mod), so old mod versions keep their address and behaviour.
 |---|---|---|---|
 | `slot` | integer `0`–`63` | `0` | Which host of the account this is. Each (account, slot) has its own stable address |
 | `kind` | `"world"`, `"server"` | `"world"` | A world opened in the client, or a dedicated server |
-| `client` | `"mod"`, `"launcher"` | `"mod"` | Who connects |
+| `client` | `"mod"`, `"launcher"`, `"agent"` | `"mod"` | Who connects. `"vibey-client"` counts as `"mod"`, `"agent"` (1.7) as `"launcher"` |
 | `version` | string | value of `mod` | Version of the client |
 
 - Slot 0 is the classic address of the account (the one the mod always had). Other slots get their own address on
@@ -179,6 +183,31 @@ Notes for dedicated servers:
 - The server may listen on `127.0.0.1` only (`server-ip=127.0.0.1`), nothing needs to be reachable from outside.
 - The address in the handshake is the relay address; servers do not care, BungeeCord/Velocity forwarding is not used.
 
+### Vibe Server Agent (relay 1.7)
+
+The Vibe Server Agent (`vibe-agent`) runs dedicated servers headless on other machines and has no Minecraft session
+to call Mojang `joinServer` with. It speaks the launcher protocol above with two differences:
+
+1. `hello` has `"client":"agent"` (the relay treats it as `"launcher"`; the backend sees `"launcher"` too), `kind`
+   `"server"` and the slot of the server. `name` and `uuid` are the owner's from the ticket answer.
+2. On `challenge` it skips Mojang and sends `{"t":"auth","ticket":"<ticket>"}`. The ticket comes from the Vibe agent
+   gateway (`relay.ticket`, valid 5 minutes); fetch a fresh one for every control connection, also on reconnects.
+
+The relay checks the ticket with `POST /agent-ticket` at the backend (below). After that the host is a normal host
+of the owner account: same `authorize` (limits, bans, UDP channels), address and slot, `join-check`, `kick_player`,
+`kick_host`, `ban_uuid`, events. Refusals close the connection with `error`:
+
+| Code | When | Agent should |
+|---|---|---|
+| `ticket_expired` | `exp` of the ticket is in the past (checked locally, no backend call) | fetch a new ticket, reconnect |
+| `ticket_invalid` | malformed or empty, the backend answers 400/401/403, or it belongs to another account than `uuid` | fetch a new ticket once; if it fails again, stop and show `msg` |
+| `unavailable` | backend unreachable, timeout, other non-2xx or a bad answer (in both fail modes, an identity is never guessed) | reconnect with backoff |
+| `auth_failed` | the relay has no backend (`BACKEND_URL`/`BACKEND_SECRET` unset), so it cannot check tickets | stop |
+
+A ticket is never logged. `auth` without `ticket` is unchanged (Mojang check, or `ALLOW_OFFLINE`); a `ticket` field
+that is present but empty or not a string is a ticket check, never a fallback to Mojang. `test/launcher-client.ts`
+takes a `ticket` callback (CLI: `VIBE_RELAY_TICKET=…`) as reference implementation.
+
 ### UDP: voice chat and Bedrock (relay 1.5)
 
 `ready` has `"features":["udp"]` when the relay forwards UDP. A host then sends `{"t":"udp","channels":["voice","bedrock"]}`
@@ -192,12 +221,15 @@ With `BACKEND_URL` and `BACKEND_SECRET` set, the relay talks to the Vibe Backend
 bodies. UUIDs are 32 lowercase hex digits without dashes, `at` is an ISO 8601 timestamp, `ttl` is in seconds. No
 backend call ever blocks a running tunnel.
 
-**`POST /authorize`**, after the Mojang check and before a host goes online:
+**`POST /authorize`**, after the Mojang check (or the agent ticket check) and before a host goes online:
 
 ```json
 { "uuid": "…", "name": "Steve", "ip": "1.2.3.4", "client": "mod", "kind": "world", "slot": 0,
   "mc": "1.21.11", "version": "1.0.0", "active": 1 }
 ```
+
+Since 1.7 a host that signed in with an agent ticket has `"client": "launcher"` and an extra
+`"agent": { "id": "<agentId>", "serverId": "<id>" | null }` (backends that do not know the field ignore it).
 
 `active` = other hosts of this account online on this worker (a host on the same slot would be replaced and is not
 counted). Answers:
@@ -214,6 +246,19 @@ Answers are cached per (uuid, client, kind) for `ttl` seconds (`0` or missing = 
 cached. Backend unreachable (network error, timeout, non-2xx, bad JSON): `BACKEND_FAIL_MODE=open` allows with the
 local limits, `closed` refuses with `unavailable`. Failures are logged once, then at most every 5 minutes, and
 recovery is logged.
+
+**`POST /agent-ticket`** (since 1.7), when a Vibe Server Agent sends `auth` with a ticket, instead of Mojang:
+
+```json
+{ "ticket": "<JWT from the agent gateway>" }
+```
+
+- `200 { "uuid": "…", "name": "Owner", "agentId": "…", "serverId": "…" | null }`: the ticket is valid; `uuid` (with or
+  without dashes) must be the hello's `uuid`, `name` becomes the host name.
+- `400`/`401`/`403`: invalid or expired, the agent gets `ticket_invalid`.
+- Anything else (network, timeout, 5xx, bad JSON): the agent gets `unavailable`, regardless of `BACKEND_FAIL_MODE`.
+
+No retry and no cache: a ticket is checked once per control connection.
 
 **`POST /join-check`** (since 1.6), before a joining player (not a server list ping) reaches the host, after the
 host's own whitelist/ban list:
@@ -259,7 +304,7 @@ mode the server checks it; it can be empty for very old clients). Any 2xx counts
 
 Bans from `ban_uuid` live in memory; after a restart the backend's `authorize` answer is what counts.
 
-**`POST /heartbeat`** every 30 s (and at start) `{ "version": "1.6.0", "hosts": 3, "players": 7, "uptime": 3600, "udp": { … } }` →
+**`POST /heartbeat`** every 30 s (and at start) `{ "version": "1.7.0", "hosts": 3, "players": 7, "uptime": 3600, "udp": { … } }` →
 `{ "config": { … } }` (same keys as the `config` command, optional).
 
 ## Addresses file

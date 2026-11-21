@@ -16,6 +16,7 @@ export type AuthorizeRequest = {
   uuid: string; name: string; ip: string; client: Client; kind: Kind; slot: number; mc: string; version: string;
   /** Other hosts of this account online on this worker (a host on the same slot would be replaced, so not counted). */
   active: number;
+  agent?: { id: string; serverId: string | null };
 };
 export type Decision =
   | { allow: true; maxHosts: number; maxPlayers: number | null; udp: ChannelName[] }

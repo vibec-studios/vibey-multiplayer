@@ -1,6 +1,7 @@
 import * as crypto from "node:crypto";
 import type * as net from "node:net";
 import { openAccess, parseAccess } from "./access.ts";
+import { type AgentIdentity, checkTicket, readTicket } from "./agent-ticket.ts";
 import { addressOf, labelFor } from "./addresses.ts";
 import { authorize } from "./backend.ts";
 import { ALLOW_OFFLINE, AUTH_TIMEOUT_MS, DOMAIN, MAX_SLOT, PROTOCOL, PUBLIC_PORT, ROTATIONS_PER_HOUR, log } from "./config.ts";
@@ -14,6 +15,7 @@ import { udpAvailable } from "./udp/status.ts";
 const HOUR = 3_600_000;
 const KINDS: Kind[] = ["world", "server"];
 const CLIENTS: Client[] = ["mod", "launcher"];
+const ALIASES: Record<string, Client> = { "vibey-client": "mod", agent: "launcher", "vibe-agent": "launcher" };
 
 export function startControl(sock: net.Socket, ip: string, hello: Msg): (msg: Msg) => void {
   const name = String(hello.name ?? "");
@@ -25,7 +27,7 @@ export function startControl(sock: net.Socket, ip: string, hello: Msg): (msg: Ms
   const kind = (hello.kind ?? "world") as Kind;
   // The Vibey Client bundles the multiplayer mod and says "vibey-client"; it hosts like the mod (slot 0 world).
   const rawClient = String(hello.client ?? "mod");
-  const client = (rawClient === "vibey-client" ? "mod" : rawClient) as Client;
+  const client = (ALIASES[rawClient] ?? rawClient) as Client;
   if (!Number.isInteger(slot) || slot < 0 || slot > MAX_SLOT) return fail(sock, "bad_hello", `Invalid slot (0-${MAX_SLOT}).`);
   if (!KINDS.includes(kind)) return fail(sock, "bad_hello", "Invalid kind.");
   if (!CLIENTS.includes(client)) return fail(sock, "bad_hello", "Invalid client.");
@@ -47,16 +49,34 @@ export function startControl(sock: net.Socket, ip: string, hello: Msg): (msg: Ms
   });
   send(sock, { t: "challenge", serverId });
 
-  const auth = async () => {
+  const verify = async (ticket: string | null): Promise<{ id: string; name: string; agent?: AgentIdentity } | null> => {
+    if (ticket === null) return ALLOW_OFFLINE ? { id: claimed, name } : await hasJoined(name, serverId);
+    const res = await checkTicket(ticket);
+    if (!res.ok) {
+      log(`agent ticket refused for ${name}#${slot}: ${res.code}`);
+      fail(sock, res.code, res.message);
+      return null;
+    }
+    if (res.identity.uuid !== claimed) {
+      log(`agent ticket refused for ${name}#${slot}: belongs to another account`);
+      fail(sock, "ticket_invalid", "The Vibe ticket belongs to another account.");
+      return null;
+    }
+    return { id: res.identity.uuid, name: res.identity.name, agent: res.identity };
+  };
+
+  const auth = async (ticket: string | null) => {
     authing = true;
-    const profile = ALLOW_OFFLINE ? { id: claimed, name } : await hasJoined(name, serverId);
+    const profile = await verify(ticket);
+    if (sock.destroyed || sock.writableEnded) return;
     if (!profile || normUuid(profile.id) !== claimed) {
       fail(sock, "auth_failed", "Could not verify your Minecraft account.");
       return;
     }
-    if (sock.destroyed) return;
+    const agent = profile.agent ? { id: profile.agent.agentId, serverId: profile.agent.serverId } : undefined;
     const decision = await authorize({
       uuid: claimed, name: profile.name, ip, client, kind, slot, mc, version, active: hostsOf(claimed, slot).length,
+      ...(agent ? { agent } : {}),
     });
     if (sock.destroyed) return;
     if (!decision.allow) {
@@ -81,7 +101,7 @@ export function startControl(sock: net.Socket, ip: string, hello: Msg): (msg: Ms
       access, rotations: [], streams: 0, live: new Set(), players: new Map(), udpAllow: decision.udp,
     };
     register(host);
-    log(`host online ${host.name}#${slot} (${client} ${kind}) -> ${host.label}`);
+    log(`host online ${host.name}#${slot} (${agent ? `agent ${agent.id}` : client} ${kind}) -> ${host.label}`);
     send(sock, ready(host));
     if (udpWanted) requestUdp(host, udpWanted);
   };
@@ -112,7 +132,7 @@ export function startControl(sock: net.Socket, ip: string, hello: Msg): (msg: Ms
         if (host) host.access = access;
         return;
       case "auth":
-        if (!host && !authing) void auth();
+        if (!host && !authing) void auth(readTicket(msg.ticket));
         return;
       case "rotate":
         if (host) rotate(host);

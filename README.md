@@ -68,6 +68,8 @@ Fabric needs [Fabric API](https://modrinth.com/mod/fabric-api). The mod only run
 - Your world is published like *Open to LAN*; Vibey connects that port to the relay. Nothing else on your
   computer is reachable.
 - The relay proves who you are with the same Mojang session check servers use, so nobody can take your address.
+  Servers run by the Vibe Server Agent on another machine sign in with a short-lived ticket of the owner's Vibe
+  account instead (relay 1.7), checked by the Vibe Backend.
 - Addresses come from wildcard DNS (`*.axolite.cc`) pointing at the relay, so friends never type a port. Addresses
   handed out before the domain move keep working: `mossy-otter-27.vibey.henny.dev` is the same address.
 - When you are offline, your address still answers in the server list: *"This world is offline"*.

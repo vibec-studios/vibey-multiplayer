@@ -27,6 +27,8 @@ export type LauncherOptions = {
   /** Minecraft access token for Mojang's joinServer; omit only against ALLOW_OFFLINE relays. */
   accessToken?: string;
   sessionServer?: string;
+  /** Vibe Server Agent (relay 1.7): a fresh relay ticket from the Vibe agent gateway instead of the Mojang join. */
+  ticket?: () => Promise<string> | string;
   access?: { whitelist: string[] | null; banNames: string[]; banIps: string[] };
   onReady?: (address: string) => void;
   /** Fatal: the relay refused or replaced this host, no retry. */
@@ -61,7 +63,7 @@ export function startLauncherClient(o: LauncherOptions): LauncherClient {
       sock.write(MAGIC);
       send({
         t: "hello", v: 1, name: o.name, uuid: o.uuid, mc: o.mc,
-        client: "launcher", kind: "server", slot: o.slot, version: o.version,
+        client: o.ticket ? "agent" : "launcher", kind: "server", slot: o.slot, version: o.version,
       });
       send({ t: "access", ...(o.access ?? { whitelist: null, banNames: [], banIps: [] }) });
       ping = setInterval(() => send({ t: "ping" }), 20_000);
@@ -77,6 +79,12 @@ export function startLauncherClient(o: LauncherOptions): LauncherClient {
         const msg = JSON.parse(lineText);
         switch (msg.t) {
           case "challenge":
+            if (o.ticket) {
+              void Promise.resolve()
+                .then(o.ticket)
+                .then((ticket) => send({ t: "auth", ticket }), (e) => (log("no relay ticket:", e), send({ t: "auth", ticket: "" })));
+              break;
+            }
             void joinServer(msg.serverId).then((err) => {
               if (err) log("Mojang join failed:", err);
               send({ t: "auth" });
@@ -200,6 +208,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   startLauncherClient({
     relayHost, relayPort: Number(relayPort), serverPort: Number(v.port), name: v.name, uuid: v.uuid, slot: Number(v.slot),
     mc: v.mc!, version: "launcher-client-test", accessToken: process.env.MC_ACCESS_TOKEN,
+    ticket: process.env.VIBE_RELAY_TICKET ? () => process.env.VIBE_RELAY_TICKET! : undefined,
     onReady: (a) => console.log("online:", a),
     onError: (c, m) => (console.error(`refused (${c}): ${m}`), process.exit(1)),
     onPlayer: (n, ip) => console.log(`player ${n} from ${ip}`),
