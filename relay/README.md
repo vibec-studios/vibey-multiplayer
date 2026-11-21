@@ -64,6 +64,7 @@ npm run launcher-client -- --relay host:port --port <server port> --name <name> 
 | `BACKEND_TIMEOUT_MS` | `5000` | Timeout of every backend request |
 | `BACKEND_EVENTS_MS` / `BACKEND_COMMANDS_MS` / `BACKEND_HEARTBEAT_MS` | `2000` / `5000` / `30000` | Intervals |
 | `BACKEND_EVENT_BUFFER` | `10000` | Events kept while the backend is down; the oldest are dropped beyond that |
+| `KICK_GRACE_MS` | `3000` | After a `kick_player` command: how long the host may show its own kick message before the relay cuts the player |
 | `UDP_PORT` | `24454` | UDP for Simple Voice Chat and the host tunnel, `0` = off. All `UDP_*` variables: [UDP.md](UDP.md) |
 | `UDP_BEDROCK_PORTS` | `19200-19299` | One UDP port per host for Bedrock players (Geyser), empty = off |
 
@@ -109,8 +110,9 @@ of traffic can share the port. After the magic: newline-delimited JSON (one obje
 | S → C | `{"t":"ready","address":"a-b-12.domain","label":"a-b-12","domain":"domain","port":25565,"slot":0}` | `domain` = the primary domain |
 | C → S | `{"t":"rotate"}` | New address for this slot, answered with `ready` (6 per hour) |
 | C → S | `{"t":"access","whitelist":["name"]\|null,"banNames":[…],"banIps":[…],"messages":{"banned":"…","whitelist":"…"}}` | Enforced by the relay before a byte reaches the host; may be sent any time, also before `auth` |
-| S → C | `{"t":"open","sid":7,"key":"<hex>","ip":"1.2.3.4","state":2,"name":"Steve","uuid":"…"}` | A player knocked; `name`/`uuid` only for joins (`state` 2), pings have `state` 1 |
+| S → C | `{"t":"open","sid":7,"key":"<hex>","ip":"1.2.3.4","state":2,"name":"Steve","uuid":"…"}` | A player knocked; `name`/`uuid` only for joins (`state` 2), pings have `state` 1. Since 1.6 joins may carry `"role":"host"\|"member"\|"guest"` from the backend's join-check |
 | S → C | `{"t":"blocked","name":"Steve","ip":"1.2.3.4","reason":"banned"\|"whitelist"}` | |
+| S → C | `{"t":"kick","name":"Steve"\|null,"uuid":"…"\|null,"msg":"…"}` | Since 1.6: the host kicked this player in the Vibe hosting panel. The mod may disconnect the player with `msg`; the relay cuts the connection itself after `KICK_GRACE_MS`. Older mods ignore it |
 | C → S / S → C | `{"t":"ping"}` / `{"t":"pong"}` | Hosts that stay silent for 75 s are dropped; ping every 20 s |
 | S → C | `{"t":"error","code":"…","msg":"…"}`, `{"t":"replaced"}` | Then the relay closes. `replaced`: the same account and slot is hosted somewhere else |
 
@@ -213,6 +215,23 @@ cached. Backend unreachable (network error, timeout, non-2xx, bad JSON): `BACKEN
 local limits, `closed` refuses with `unavailable`. Failures are logged once, then at most every 5 minutes, and
 recovery is logged.
 
+**`POST /join-check`** (since 1.6), before a joining player (not a server list ping) reaches the host, after the
+host's own whitelist/ban list:
+
+```json
+{ "uuid": "<host>", "slot": 0, "player": { "name": "Alex", "uuid": "…" }, "ip": "5.6.7.8" }
+```
+
+`player.uuid` is `null` when the client sent none.
+
+- `{ "allow": true, "role": "member" }`: the player is let through; `role` is passed to the host in `open`.
+- `{ "allow": false, "code": "kicked" | "not_friend" | "not_invited", "message": "…" }`: the player is disconnected with
+  `message` and never reaches the host.
+
+Any error (network, timeout, non-2xx, bad JSON) lets the player in, as before join-check existed; players kicked with
+`kick_player` during the running session still stay out then. A `404` (backend without join-check) turns the call off
+for 10 minutes, so an older backend does not slow joins down.
+
 **`POST /events`**, batched every 2 s (at most 500 per request), retried with backoff, kept in a bounded buffer:
 
 ```json
@@ -236,10 +255,11 @@ mode the server checks it; it can be empty for very old clients). Any 2xx counts
 | `ban_uuid` | `uuid`, `message?` | All hosts of the account are disconnected (`banned`), new ones refused until restart |
 | `unban_uuid` | `uuid` | Lifts a `ban_uuid` |
 | `config` | `config: { maxHostsPerAccount?, maxPlayers?, failMode? }` | Changes the local limits and fail mode |
+| `kick_player` | `uuid` (host), `slot`, `player: { uuid \| null, name }`, `message` | Since 1.6: the host gets `kick`, a waiting join is refused with `message`, a joined player is cut after `KICK_GRACE_MS` |
 
 Bans from `ban_uuid` live in memory; after a restart the backend's `authorize` answer is what counts.
 
-**`POST /heartbeat`** every 30 s (and at start) `{ "version": "1.5.0", "hosts": 3, "players": 7, "uptime": 3600, "udp": { … } }` →
+**`POST /heartbeat`** every 30 s (and at start) `{ "version": "1.6.0", "hosts": 3, "players": 7, "uptime": 3600, "udp": { … } }` →
 `{ "config": { … } }` (same keys as the `config` command, optional).
 
 ## Addresses file

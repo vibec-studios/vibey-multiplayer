@@ -43,8 +43,9 @@ export const BACKEND_EVENTS_MS = intEnv("BACKEND_EVENTS_MS", 2_000);
 export const BACKEND_COMMANDS_MS = intEnv("BACKEND_COMMANDS_MS", 5_000);
 export const BACKEND_HEARTBEAT_MS = intEnv("BACKEND_HEARTBEAT_MS", 30_000);
 export const BACKEND_EVENT_BUFFER = intEnv("BACKEND_EVENT_BUFFER", 10_000);
+export const KICK_GRACE_MS = intEnv("KICK_GRACE_MS", 3_000);
 
-export const VERSION = "1.5.0";
+export const VERSION = "1.6.0";
 export const PROTOCOL = 1;
 export const MAGIC = Buffer.from([0x00, 0x56, 0x42, 0x59]);
 

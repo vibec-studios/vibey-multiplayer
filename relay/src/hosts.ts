@@ -5,7 +5,7 @@ import { addressOf, owner } from "./addresses.ts";
 import { DATA_CONNECT_TIMEOUT_MS, log } from "./config.ts";
 import { emit } from "./events.ts";
 import { send } from "./lines.ts";
-import { OFFLINE, refuse } from "./reply.ts";
+import { OFFLINE, type Text, refuse } from "./reply.ts";
 import type { ChannelName } from "./udp/config.ts";
 import type { UdpSession } from "./udp/session.ts";
 import type { Login } from "./wire.ts";
@@ -39,6 +39,7 @@ export type Host = {
   live: Set<net.Socket>;
   players: Map<net.Socket, Player>;
   gone?: boolean;
+  kicked?: Map<string, string>;
   udpAllow?: ChannelName[];
   udp?: UdpSession;
 };
@@ -139,6 +140,16 @@ export function claim(sid: number, key: string): Pending | null {
   clearTimeout(p.timer);
   p.player.off("close", p.gone);
   return p;
+}
+
+export function pendingOf(h: Host, match: (login: Login) => boolean): Pending[] {
+  return [...pending.values()].filter((p) => p.host === h && p.login && match(p.login));
+}
+
+export function refusePending(p: Pending, text: Text) {
+  if (!pending.has(p.sid)) return;
+  unpark(p, false);
+  refuse(p.player, p.head, text);
 }
 
 function unpark(p: Pending, tellPlayer: boolean) {

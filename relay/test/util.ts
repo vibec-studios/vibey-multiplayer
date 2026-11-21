@@ -149,7 +149,7 @@ export type HostSession = {
 };
 
 /** A fake mod (or launcher with `extra` hello fields): authenticates and splices every `open` to `mcPort`. */
-export async function hostSession(port: number, mcPort: number, extra: object = {}, uuid = UUID): Promise<HostSession> {
+export async function hostSession(port: number, mcPort: number, extra: object = {}, uuid = UUID, wait = 6000): Promise<HostSession> {
   const ctl = await connect(port);
   const opens: any[] = [];
   const blocked: any[] = [];
@@ -183,7 +183,7 @@ export async function hostSession(port: number, mcPort: number, extra: object = 
   const nextReady = () => new Promise<any>((r) => (onReady = r));
   const first = nextReady();
   ctl.write(tunnel({ t: "hello", v: 1, name: "Tester", uuid, mc: "test", ...extra }));
-  const ready = await Promise.race([first, sleep(6000).then(() => ({ t: "timeout" }))]);
+  const ready = await Promise.race([first, sleep(wait).then(() => ({ t: "timeout" }))]);
   return { ctl, opens, blocked, errors, messages, nextReady, ready };
 }
 

@@ -4,6 +4,7 @@ import {
 } from "./config.ts";
 import { type RelayEvent, flushEvents, startEvents } from "./events.ts";
 import { type Client, type Kind, hosts, kick } from "./hosts.ts";
+import { kickPlayer } from "./kick-player.ts";
 import { normUuid } from "./mojang.ts";
 import { CHANNELS, type ChannelName, DEFAULT_CHANNELS, parseChannels } from "./udp/config.ts";
 import { udpSummary } from "./udp/status.ts";
@@ -120,6 +121,9 @@ export function applyCommand(c: Command) {
     case "config":
       applyConfig(c.config ?? c);
       return;
+    case "kick_player":
+      kickPlayer(uuid, c.slot == null ? 0 : Number(c.slot), c.player, message);
+      return;
     default:
       log(`backend: unknown command type ${String(c.type)}, ignored`);
   }
@@ -228,7 +232,15 @@ export function startBackend(): () => Promise<void> {
 
 // ------------------------------------------------------------------------------------------------ http
 
-async function call(method: "GET" | "POST", path: string, body?: unknown): Promise<unknown> {
+export class HttpError extends Error {
+  readonly status: number;
+  constructor(status: number, message: string) {
+    super(message);
+    this.status = status;
+  }
+}
+
+export async function call(method: "GET" | "POST", path: string, body?: unknown): Promise<unknown> {
   const res = await fetch(`${BACKEND_URL}/internal/relay/v1${path}`, {
     method,
     headers: {
@@ -244,7 +256,7 @@ async function call(method: "GET" | "POST", path: string, body?: unknown): Promi
     // Say who answered (backend or a proxy such as Cloudflare) so a block in front of the backend is easy to spot
     const via = res.headers.get("cf-mitigated") ? `cloudflare ${res.headers.get("cf-mitigated")}` : res.headers.get("server") ?? "?";
     const snippet = (await res.text().catch(() => "")).replace(/\s+/g, " ").slice(0, 160);
-    throw new Error(`HTTP ${res.status} (${via}) ${snippet}`);
+    throw new HttpError(res.status, `HTTP ${res.status} (${via}) ${snippet}`);
   }
   const text = await res.text();
   return text ? JSON.parse(text) : null;
@@ -264,7 +276,7 @@ async function callWithRetry(path: string, body: unknown): Promise<unknown> {
 /** Failing endpoint -> when it was last logged. Logs the first failure, then at most every 5 minutes, and the recovery. */
 const failing = new Map<string, number>();
 
-function trouble(what: string, e: unknown) {
+export function trouble(what: string, e: unknown) {
   const last = failing.get(what);
   const now = Date.now();
   if (last !== undefined && now - last < 300_000) return;
@@ -273,6 +285,6 @@ function trouble(what: string, e: unknown) {
   log(`backend: ${what} failed: ${(e as Error)?.message ?? e}${mode}`);
 }
 
-function healthy(what: string) {
+export function healthy(what: string) {
   if (failing.delete(what)) log(`backend: ${what} works again`);
 }

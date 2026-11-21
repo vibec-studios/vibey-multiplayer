@@ -24,6 +24,9 @@ type Fake = {
   failAuthorize: boolean;
   decide: (req: any) => any;
   heartbeatConfig: any;
+  joinChecks: any[];
+  joinDecide: (req: any) => any;
+  joinCheckStatus: number;
   close: () => void;
 };
 
@@ -31,6 +34,7 @@ async function fakeBackend(): Promise<Fake> {
   const f: Fake = {
     url: "", authorize: [], events: [], acks: [], heartbeats: [], badAuth: 0, relayIds: new Set(), commands: [], failEvents: 0,
     failAuthorize: false, decide: () => ({ allow: true, maxHosts: 2, maxPlayers: null, ttl: 0 }), heartbeatConfig: null,
+    joinChecks: [], joinDecide: () => ({ allow: true, role: "guest" }), joinCheckStatus: 200,
     close: () => server.close(),
   };
   const server = http.createServer(async (req, res) => {
@@ -64,6 +68,10 @@ async function fakeBackend(): Promise<Fake> {
       case "POST /internal/relay/v1/commands/ack":
         f.acks.push(...body.ids);
         return reply(200, { ok: true });
+      case "POST /internal/relay/v1/join-check":
+        f.joinChecks.push(body);
+        if (f.joinCheckStatus !== 200) return reply(f.joinCheckStatus, { error: { code: "x", message: "x" } });
+        return reply(200, f.joinDecide(body));
       case "POST /internal/relay/v1/heartbeat":
         f.heartbeats.push(body);
         return reply(200, { config: f.heartbeatConfig ?? {} });
@@ -83,7 +91,7 @@ async function until(cond: () => unknown, ms = 4000): Promise<boolean> {
   return Boolean(cond());
 }
 
-const fast = { BACKEND_EVENTS_MS: "150", BACKEND_COMMANDS_MS: "150", BACKEND_HEARTBEAT_MS: "300", BACKEND_TIMEOUT_MS: "1000" };
+const fast = { BACKEND_EVENTS_MS: "150", BACKEND_COMMANDS_MS: "150", BACKEND_HEARTBEAT_MS: "300", KICK_GRACE_MS: "300" };
 
 async function main() {
   const fake = await fakeBackend();
@@ -116,10 +124,10 @@ async function main() {
     fake.decide = (req) => (req.uuid === BANNED
       ? { allow: false, code: "banned", message: "Du bist gesperrt." }
       : { allow: false, code: "limit", message: "Zu viele Welten." });
-    const banned = await hostSession(PORT, mc.port, {}, BANNED);
+    const banned = await hostSession(PORT, mc.port, {}, BANNED, 15_000);
     assert(banned.ready.t === "error" && banned.ready.code === "banned" && banned.ready.msg === "Du bist gesperrt.",
-      "backend deny (banned) -> error with the backend's message");
-    assert(await closed(banned.ctl), "denied host is disconnected");
+      "backend deny (banned) -> error with the backend's message: " + JSON.stringify(banned.ready));
+    assert(await closed(banned.ctl, 10_000), "denied host is disconnected");
     const limited = await hostSession(PORT, mc.port, { slot: 3 }, OTHER);
     assert(limited.ready.code === "limit" && limited.ready.msg === "Zu viele Welten.", "backend deny (limit) is passed on");
 
@@ -159,6 +167,42 @@ async function main() {
     (await join(PORT, replaced.ready.label, "Carl")).sock.destroy();
     assert(await until(() => fake.events.length >= before + 2, 8000), "events survive backend errors (retry from buffer)");
 
+    // ------------------------------------------------------------------------------------- join-check, kick_player
+    await sleep(100);
+    fake.joinDecide = (b) => (b.player.name === "Eve"
+      ? { allow: false, code: "not_friend", message: "Nur Freunde von Tester dürfen beitreten." }
+      : { allow: true, role: b.player.name === "Mia" ? "member" : "guest" });
+    const checks = fake.joinChecks.length;
+    const eve = await join(PORT, replaced.ready.label, "Eve");
+    assert(eve.data.includes("Nur Freunde von Tester"), "join-check deny -> the player sees the backend's message");
+    assert(!replaced.opens.some((o) => o.name === "Eve"), "a denied player never reaches the host");
+    const jc = fake.joinChecks.at(-1);
+    assert(fake.joinChecks.length === checks + 1 && jc.uuid === UUID && jc.slot === 0 && jc.player.name === "Eve"
+      && jc.player.uuid.length === 32 && jc.ip === "127.0.0.1", "join-check gets host uuid, slot, player and ip");
+    eve.sock.destroy();
+
+    const mia = await join(PORT, replaced.ready.label, "Mia");
+    assert(mia.data.startsWith("MC:"), "join-check allow -> the player joins");
+    assert(replaced.opens.at(-1)?.name === "Mia" && replaced.opens.at(-1)?.role === "member", "the role reaches the host in open");
+
+    fake.commands.push({ id: "k1", type: "kick_player", uuid: UUID, slot: 0, player: { uuid: null, name: "mia" }, message: "Tschüss" });
+    assert(await until(() => replaced.messages.some((m) => m.t === "kick" && m.name === "mia" && m.msg === "Tschüss")),
+      "kick_player -> the host is told (kick message for the mod)");
+    assert(await closed(mia.sock, 8000), "kick_player -> the relay cuts the player after the grace time");
+    assert(await until(() => fake.acks.includes("k1")), "kick_player is acknowledged");
+    assert(await until(() => fake.events.some((e) => e.type === "player_leave" && e.player?.name === "Mia")), "kicked player leaves");
+
+    fake.joinCheckStatus = 500;
+    const miaAgain = await join(PORT, replaced.ready.label, "Mia");
+    assert(miaAgain.data.includes("Tschüss"), "join-check down: a player kicked in this session stays out");
+    miaAgain.sock.destroy();
+    const finn = await join(PORT, replaced.ready.label, "Finn");
+    assert(finn.data.startsWith("MC:"), "join-check down: others join as before (fail open)");
+    finn.sock.destroy();
+    fake.joinCheckStatus = 200;
+    fake.joinDecide = () => ({ allow: true, role: "guest" });
+    await sleep(100);
+
     // -------------------------------------------------------------------------------------- heartbeat, commands
     assert(await until(() => fake.heartbeats.length > 0), "heartbeat arrives");
     const hb = fake.heartbeats.at(-1);
@@ -191,11 +235,17 @@ async function main() {
       mc: "1.21.11", version: "0.5.0", onReady: (x) => (address = x),
     });
     assert(await until(() => address), "launcher client gets an address: " + address);
+    fake.joinCheckStatus = 404;
+    const oldChecks = fake.joinChecks.length;
     const la = fake.authorize.at(-1);
     assert(la.client === "launcher" && la.kind === "server" && la.slot === 1 && la.version === "0.5.0", "launcher identifies itself");
     const viaLauncher = await join(PORT, address.split(".")[0], "Dana");
     assert(viaLauncher.data.startsWith("MC:"), "a player reaches the dedicated server through the launcher client");
     viaLauncher.sock.destroy();
+    const viaLauncher2 = await join(PORT, address.split(".")[0], "Ezra");
+    assert(viaLauncher2.data.startsWith("MC:") && fake.joinChecks.length === oldChecks + 1,
+      "older backend without join-check (404): joins work as before and it is not asked again");
+    viaLauncher2.sock.destroy();
     launcher.stop();
 
     // ----------------------------------------------------------------------------------------------- udp (1.5)

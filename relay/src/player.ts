@@ -1,9 +1,11 @@
 import type * as net from "node:net";
 import { blockReason } from "./access.ts";
 import { addressOf, labelFromHost } from "./addresses.ts";
-import { FIRST_BYTES_TIMEOUT_MS, MAX_PLAYER_PREFIX, MAX_STREAMS } from "./config.ts";
+import { FIRST_BYTES_TIMEOUT_MS, MAX_PLAYER_PREFIX, MAX_STREAMS, log } from "./config.ts";
 import { emit } from "./events.ts";
 import { type Host, joinCount, lookup, park } from "./hosts.ts";
+import { joinCheck, joinChecks } from "./join-check.ts";
+import { kickedMessage } from "./kick-player.ts";
 import { send } from "./lines.ts";
 import { BUSY, FULL, OFFLINE, UNKNOWN, refuse } from "./reply.ts";
 import { totals } from "./stats.ts";
@@ -59,10 +61,29 @@ function route(sock: net.Socket, head: Buffer, ip: string, { hs, uuid, host, log
     }
     return refuse(sock, head, { title: host.access.messages[reason], sub: "" });
   }
+  if (!login || !joinChecks()) return admit(sock, head, ip, hs, host, login, null);
+
+  sock.pause();
+  void joinCheck(host, login, ip).then((v) => {
+    if (sock.destroyed) return;
+    const now = host.gone ? lookup(labelFromHost(hs.host)).host : host;
+    if (!now) return refuse(sock, head, OFFLINE);
+    if (!v.allow) {
+      totals.blocked++;
+      log(`join refused ${login.name} -> ${now.name}#${now.slot}: ${v.code}`);
+      return refuse(sock, head, { title: v.message, sub: "" });
+    }
+    const kicked = v.fallback ? kickedMessage(now, login) : null;
+    if (kicked) return refuse(sock, head, { title: kicked, sub: "" });
+    admit(sock, head, ip, hs, now, login, v.role);
+  });
+}
+
+function admit(sock: net.Socket, head: Buffer, ip: string, hs: Handshake, host: Host, login: Login | null, role: string | null) {
   if (login && host.maxPlayers !== null && joinCount(host) >= host.maxPlayers) return refuse(sock, head, FULL);
   if (host.streams >= MAX_STREAMS) return refuse(sock, head, BUSY);
 
   if (hs.next === STATE_STATUS) totals.pings++;
   const p = park(host, sock, head, login, ip);
-  send(host.sock, { t: "open", sid: p.sid, key: p.key, ip, state: hs.next, ...(login ?? {}) });
+  send(host.sock, { t: "open", sid: p.sid, key: p.key, ip, state: hs.next, ...(login ?? {}), ...(role ? { role } : {}) });
 }
