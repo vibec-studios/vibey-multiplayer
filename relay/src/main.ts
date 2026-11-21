@@ -9,6 +9,7 @@ import { drop, hosts } from "./hosts.ts";
 import { handlePlayer } from "./player.ts";
 import { serveStatus } from "./stats.ts";
 import { handleTunnel } from "./tunnel.ts";
+import { startUdp } from "./udp/server.ts";
 
 const LEGACY_PING = 0xfe;
 
@@ -39,6 +40,7 @@ const relay = net.createServer(accept).listen(PORT, () => {
   log(`relay id ${RELAY_ID}`);
   if (!backendEnabled) log(`no backend, up to ${settings.maxHostsPerAccount} hosts per account`);
 });
+const stopUdp = await startUdp();
 const stopBackend = startBackend();
 const statusServer = HTTP_PORT ? serveStatus(HTTP_PORT) : null;
 setInterval(dropSilentHosts, 15_000).unref();
@@ -50,6 +52,7 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {
     relay.close();
     statusServer?.close();
     for (const h of [...hosts()]) drop(h);
+    stopUdp();
     await stopBackend();
     process.exit(0);
   });

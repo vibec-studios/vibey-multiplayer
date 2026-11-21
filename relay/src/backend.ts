@@ -5,6 +5,8 @@ import {
 import { type RelayEvent, flushEvents, startEvents } from "./events.ts";
 import { type Client, type Kind, hosts, kick } from "./hosts.ts";
 import { normUuid } from "./mojang.ts";
+import { CHANNELS, type ChannelName, DEFAULT_CHANNELS, parseChannels } from "./udp/config.ts";
+import { udpSummary } from "./udp/status.ts";
 
 /** Optional connection to the Vibe Backend (contract: relay/README.md, "Backend"). */
 export const enabled = Boolean(BACKEND_URL && BACKEND_SECRET);
@@ -15,7 +17,7 @@ export type AuthorizeRequest = {
   active: number;
 };
 export type Decision =
-  | { allow: true; maxHosts: number; maxPlayers: number | null }
+  | { allow: true; maxHosts: number; maxPlayers: number | null; udp: ChannelName[] }
   | { allow: false; code: string; message: string };
 
 /** Limits without a backend, or when it is unreachable in fail-open mode. Changed by `config` commands. */
@@ -62,18 +64,28 @@ export async function authorize(req: AuthorizeRequest): Promise<Decision> {
 }
 
 function local(): Decision {
-  return { allow: true, maxHosts: settings.maxHostsPerAccount, maxPlayers: settings.maxPlayers };
+  return { allow: true, maxHosts: settings.maxHostsPerAccount, maxPlayers: settings.maxPlayers, udp: DEFAULT_CHANNELS };
 }
 
 function parseDecision(b: any): Decision {
   if (b?.allow === true) {
     const maxHosts = count(b.maxHosts) ?? settings.maxHostsPerAccount;
     const maxPlayers = b.maxPlayers === null ? null : (count(b.maxPlayers) ?? settings.maxPlayers);
-    return { allow: true, maxHosts, maxPlayers };
+    return { allow: true, maxHosts, maxPlayers, udp: parseUdp(b.udp) };
   }
   const code = typeof b?.code === "string" && /^[a-z_]{1,32}$/.test(b.code) ? b.code : "disabled";
   const message = typeof b?.message === "string" && b.message ? b.message.slice(0, 256) : "Hosting is not allowed for this account.";
   return { allow: false, code, message };
+}
+
+function parseUdp(v: unknown): ChannelName[] {
+  if (v === false) return [];
+  if (Array.isArray(v)) return parseChannels(v);
+  if (v && typeof v === "object") {
+    const o = v as Record<string, unknown>;
+    return CHANNELS.filter((c) => (typeof o[c] === "boolean" ? o[c] === true : DEFAULT_CHANNELS.includes(c)));
+  }
+  return DEFAULT_CHANNELS;
 }
 
 function count(v: unknown): number | undefined {
@@ -166,6 +178,7 @@ async function heartbeat() {
       hosts: all.length,
       players: all.reduce((n, h) => n + h.players.size, 0),
       uptime: Math.round(process.uptime()),
+      udp: udpSummary(),
     });
     healthy("heartbeat");
     applyConfig(body?.config);

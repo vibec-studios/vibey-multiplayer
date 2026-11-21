@@ -3,6 +3,7 @@
 import * as http from "node:http";
 import type * as net from "node:net";
 import { startLauncherClient } from "./launcher-client.ts";
+import { freeUdpPort, freeUdpRange, hostWithUdp } from "./udp-util.ts";
 import { DOMAIN, UUID, assert, closed, echoServer, freePort, hostSession, join, line, sleep, startRelay } from "./util.ts";
 
 const SECRET = "test-secret";
@@ -196,6 +197,22 @@ async function main() {
     assert(viaLauncher.data.startsWith("MC:"), "a player reaches the dedicated server through the launcher client");
     viaLauncher.sock.destroy();
     launcher.stop();
+
+    // ----------------------------------------------------------------------------------------------- udp (1.5)
+    const ports = await freeUdpRange(2);
+    const udpRelay = await startRelay({
+      BACKEND_URL: fake.url, BACKEND_SECRET: SECRET, UDP_PORT: String(await freeUdpPort()), UDP_BEDROCK_PORTS: `${ports}-${ports + 1}`, ...fast,
+    });
+    relays.push(udpRelay);
+    fake.decide = (req) => ({ allow: true, maxHosts: 2, maxPlayers: null, ttl: 0, udp: req.uuid === OTHER ? { bedrock: false } : false });
+    const u1 = await hostWithUdp(udpRelay.port, mc.port, { voice: 1, bedrock: 2 }, OTHER);
+    assert(u1.udp?.channels.voice && u1.udp.denied.bedrock?.code === "disabled", "authorize udp {bedrock:false}: voice yes, bedrock denied");
+    const u2 = await hostWithUdp(udpRelay.port, mc.port, { voice: 1 }, UUID, 2);
+    assert(u2.udp && !u2.udp.channels.voice && u2.udp.denied.voice?.code === "disabled", "authorize udp:false denies every channel");
+    assert(await until(() => fake.heartbeats.some((h) => h.udp?.sessions === 2 && typeof h.udp.peers === "number")),
+      "heartbeat reports udp sessions and peers");
+    u1.client.stop();
+    u2.client.stop();
 
     // ------------------------------------------------------------------------------------------ fail open/closed
     fake.heartbeatConfig = { maxHostsPerAccount: 1 };

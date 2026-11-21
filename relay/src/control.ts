@@ -7,6 +7,9 @@ import { ALLOW_OFFLINE, AUTH_TIMEOUT_MS, DOMAIN, MAX_SLOT, PROTOCOL, PUBLIC_PORT
 import { type Client, type Host, type Kind, drop, hostsOf, register } from "./hosts.ts";
 import { type Msg, send } from "./lines.ts";
 import { hasJoined, normUuid } from "./mojang.ts";
+import { type ChannelName, parseChannels } from "./udp/config.ts";
+import { requestUdp, resendUdp } from "./udp/control.ts";
+import { udpAvailable } from "./udp/status.ts";
 
 const HOUR = 3_600_000;
 const KINDS: Kind[] = ["world", "server"];
@@ -33,6 +36,7 @@ export function startControl(sock: net.Socket, ip: string, hello: Msg): (msg: Ms
   let access = openAccess();
   let host: Host | null = null;
   let authing = false;
+  let udpWanted: ChannelName[] | null = null;
 
   const authTimer = setTimeout(() => host || sock.destroy(), AUTH_TIMEOUT_MS);
   sock.on("close", () => {
@@ -74,11 +78,12 @@ export function startControl(sock: net.Socket, ip: string, hello: Msg): (msg: Ms
     host = {
       sock, uuid: claimed, name: profile.name, slot, kind, client, version, maxPlayers: decision.maxPlayers,
       label: labelFor(claimed, slot), ip, mc, since: now, lastSeen: now,
-      access, rotations: [], streams: 0, live: new Set(), players: new Map(),
+      access, rotations: [], streams: 0, live: new Set(), players: new Map(), udpAllow: decision.udp,
     };
     register(host);
     log(`host online ${host.name}#${slot} (${client} ${kind}) -> ${host.label}`);
     send(sock, ready(host));
+    if (udpWanted) requestUdp(host, udpWanted);
   };
 
   const rotate = (h: Host) => {
@@ -92,6 +97,7 @@ export function startControl(sock: net.Socket, ip: string, hello: Msg): (msg: Ms
     h.label = labelFor(h.uuid, h.slot, true);
     log(`host ${h.name}#${h.slot} rotated ${old} -> ${h.label}`);
     send(sock, ready(h));
+    resendUdp(h);
   };
 
   return (msg) => {
@@ -111,12 +117,19 @@ export function startControl(sock: net.Socket, ip: string, hello: Msg): (msg: Ms
       case "rotate":
         if (host) rotate(host);
         return;
+      case "udp":
+        udpWanted = parseChannels(msg.channels);
+        if (host) requestUdp(host, udpWanted);
+        return;
     }
   };
 }
 
 function ready(h: Host): Msg {
-  return { t: "ready", address: addressOf(h.label), label: h.label, domain: DOMAIN, port: PUBLIC_PORT, slot: h.slot };
+  return {
+    t: "ready", address: addressOf(h.label), label: h.label, domain: DOMAIN, port: PUBLIC_PORT, slot: h.slot,
+    features: udpAvailable() ? ["udp"] : [],
+  };
 }
 
 function fail(sock: net.Socket, code: string, msg: string): () => void {

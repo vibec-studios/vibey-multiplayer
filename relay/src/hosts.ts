@@ -6,6 +6,8 @@ import { DATA_CONNECT_TIMEOUT_MS, log } from "./config.ts";
 import { emit } from "./events.ts";
 import { send } from "./lines.ts";
 import { OFFLINE, refuse } from "./reply.ts";
+import type { ChannelName } from "./udp/config.ts";
+import type { UdpSession } from "./udp/session.ts";
 import type { Login } from "./wire.ts";
 
 export type Player = { name: string; uuid: string; ip: string; since: number };
@@ -37,6 +39,8 @@ export type Host = {
   live: Set<net.Socket>;
   players: Map<net.Socket, Player>;
   gone?: boolean;
+  udpAllow?: ChannelName[];
+  udp?: UdpSession;
 };
 
 export type Pending = {
@@ -50,6 +54,8 @@ export type Pending = {
   timer: NodeJS.Timeout;
   gone: () => void;
 };
+
+export const dropHooks: ((h: Host) => void)[] = [];
 
 const byKey = new Map<string, Host>();
 const pending = new Map<number, Pending>();
@@ -90,6 +96,7 @@ export function drop(h: Host) {
   if (byKey.get(keyOf(h.uuid, h.slot)) === h) byKey.delete(keyOf(h.uuid, h.slot));
   for (const p of pending.values()) if (p.host === h) unpark(p, true);
   for (const s of h.live) s.destroy();
+  for (const hook of dropHooks) hook(h);
   log(`host offline ${h.name}#${h.slot}`);
   emit({ type: "host_offline", uuid: h.uuid, slot: h.slot, address: addressOf(h.label), ip: h.ip });
 }

@@ -2,6 +2,7 @@ import * as http from "node:http";
 import { count } from "./addresses.ts";
 import { DOMAIN, DOMAINS, VERSION, log } from "./config.ts";
 import { hosts } from "./hosts.ts";
+import { udpMetrics, udpStatus } from "./udp/status.ts";
 
 const started = Date.now();
 
@@ -25,6 +26,7 @@ export function status() {
     totals,
     health: { relay: "ok", memoryMb: Math.round(process.memoryUsage().rss / 1048576) },
     list: worlds.slice(0, 50),
+    udp: udpStatus(),
   };
 }
 
@@ -39,8 +41,30 @@ export function serveStatus(port: number): http.Server {
         res.setHeader("content-type", "application/json");
         return res.end(JSON.stringify(status()));
       }
+      if (path === "/metrics") {
+        res.setHeader("content-type", "text/plain; version=0.0.4");
+        return res.end(metrics());
+      }
       res.statusCode = 404;
       res.end();
     })
     .listen(port, () => log(`status on :${port}`));
+}
+
+function metrics(): string {
+  const all = [...hosts()];
+  return [
+    "# TYPE vibey_hosts gauge",
+    `vibey_hosts ${all.length}`,
+    "# TYPE vibey_players gauge",
+    `vibey_players ${all.reduce((n, h) => n + h.players.size, 0)}`,
+    "# TYPE vibey_joins_total counter",
+    `vibey_joins_total ${totals.joins}`,
+    "# TYPE vibey_pings_total counter",
+    `vibey_pings_total ${totals.pings}`,
+    "# TYPE vibey_blocked_total counter",
+    `vibey_blocked_total ${totals.blocked}`,
+    ...udpMetrics(),
+    "",
+  ].join("\n");
 }

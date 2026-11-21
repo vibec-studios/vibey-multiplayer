@@ -4,6 +4,8 @@ services:
     restart: unless-stopped
     ports:
       - "25565:25565"   # Minecraft players and hosts
+      - "24454:24454/udp"   # relay 1.5: Simple Voice Chat and the UDP tunnel of hosts (UDP.md)
+      - "19200-19299:19200-19299/udp"   # relay 1.5: one Bedrock (Geyser) port per host
       - "8765:8765"     # /status and /health for the status proxy
     environment:
       # axolite.cc, vibey.henny.dev and vibe.axolite.app: official builds only, see SERVICES.md
@@ -23,6 +25,9 @@ services:
       # Empty = vibey.henny.dev: the id the backend has always known this relay by, kept although axolite.cc is the
       # primary domain now (relay/README.md, "Domains"). Do not set it to axolite.cc.
       RELAY_ID: ${RELAY_ID:-}
+      # UDP (relay 1.5, UDP.md): voice chat and Bedrock. UDP_PORT=0 turns it off. The firewall must allow both.
+      UDP_PORT: "24454"
+      UDP_BEDROCK_PORTS: "19200-19299"
     volumes:
       - addresses:/data
 volumes:

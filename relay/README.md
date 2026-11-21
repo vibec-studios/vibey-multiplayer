@@ -36,6 +36,7 @@ npm run launcher-client -- --relay host:port --port <server port> --name <name> 
 | `test/domains.ts` | Several domains, reserved names, `DOMAIN` fallback, stable `RELAY_ID` |
 | `test/backend.ts` | End-to-end test of the backend contract with a fake backend |
 | `test/launcher-client.ts` | Reference client for a local dedicated server (what the launcher does), also a CLI |
+| `src/udp/`, `test/udp*.ts` | UDP for voice chat and Bedrock players (relay 1.5), see [UDP.md](UDP.md) |
 
 ## Environment
 
@@ -63,6 +64,8 @@ npm run launcher-client -- --relay host:port --port <server port> --name <name> 
 | `BACKEND_TIMEOUT_MS` | `5000` | Timeout of every backend request |
 | `BACKEND_EVENTS_MS` / `BACKEND_COMMANDS_MS` / `BACKEND_HEARTBEAT_MS` | `2000` / `5000` / `30000` | Intervals |
 | `BACKEND_EVENT_BUFFER` | `10000` | Events kept while the backend is down; the oldest are dropped beyond that |
+| `UDP_PORT` | `24454` | UDP for Simple Voice Chat and the host tunnel, `0` = off. All `UDP_*` variables: [UDP.md](UDP.md) |
+| `UDP_BEDROCK_PORTS` | `19200-19299` | One UDP port per host for Bedrock players (Geyser), empty = off |
 
 ## Domains
 
@@ -174,6 +177,12 @@ Notes for dedicated servers:
 - The server may listen on `127.0.0.1` only (`server-ip=127.0.0.1`), nothing needs to be reachable from outside.
 - The address in the handshake is the relay address; servers do not care, BungeeCord/Velocity forwarding is not used.
 
+### UDP: voice chat and Bedrock (relay 1.5)
+
+`ready` has `"features":["udp"]` when the relay forwards UDP. A host then sends `{"t":"udp","channels":["voice","bedrock"]}`
+and gets `udp_ready` with a token, the shared voice port and its own Bedrock port; it opens a UDP tunnel to the relay
+and relays packets to its local Simple Voice Chat / Geyser. Protocol, limits, metrics and deployment: [UDP.md](UDP.md).
+
 ## Backend (optional)
 
 With `BACKEND_URL` and `BACKEND_SECRET` set, the relay talks to the Vibe Backend. All calls go to
@@ -193,7 +202,9 @@ counted). Answers:
 
 - `{ "allow": true, "maxHosts": 2, "maxPlayers": 10 | null, "ttl": 60 }`: the relay refuses with `limit` itself if
   `active >= maxHosts`, and turns away joins beyond `maxPlayers` (`null` = no limit) with "This world is full".
-  Missing `maxHosts`/`maxPlayers` fall back to the local limits.
+  Missing `maxHosts`/`maxPlayers` fall back to the local limits. Optional since 1.5: `"udp": false` or
+  `"udp": { "voice": true, "bedrock": false }` decides which UDP channels the host may open (missing = `UDP_CHANNELS`,
+  see [UDP.md](UDP.md)).
 - `{ "allow": false, "code": "limit" | "banned" | "disabled", "message": "…" }`: the client gets
   `{"t":"error","code":code,"msg":message}` and the connection closes.
 
@@ -228,7 +239,7 @@ mode the server checks it; it can be empty for very old clients). Any 2xx counts
 
 Bans from `ban_uuid` live in memory; after a restart the backend's `authorize` answer is what counts.
 
-**`POST /heartbeat`** every 30 s (and at start) `{ "version": "1.4.0", "hosts": 3, "players": 7, "uptime": 3600 }` →
+**`POST /heartbeat`** every 30 s (and at start) `{ "version": "1.5.0", "hosts": 3, "players": 7, "uptime": 3600, "udp": { … } }` →
 `{ "config": { … } }` (same keys as the `config` command, optional).
 
 ## Addresses file

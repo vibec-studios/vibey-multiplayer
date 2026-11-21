@@ -48,7 +48,7 @@ export async function startRelay(env: Record<string, string> = {}, dataDir?: str
   const dir = dataDir ?? fs.mkdtempSync(path.join(os.tmpdir(), "vibey-relay-"));
   const proc = spawn(process.execPath, [path.join(here, "..", "src", "main.ts")], {
     env: {
-      ...process.env, DOMAINS: "", RELAY_ID: "", PORT: String(port), DOMAIN, DATA_DIR: dir, ALLOW_OFFLINE: "1", HTTP_PORT: String(httpPort), ...env,
+      ...process.env, DOMAINS: "", RELAY_ID: "", PORT: String(port), DOMAIN, DATA_DIR: dir, ALLOW_OFFLINE: "1", HTTP_PORT: String(httpPort), UDP_PORT: "0", ...env,
     },
     stdio: ["ignore", "inherit", "inherit"],
   });
